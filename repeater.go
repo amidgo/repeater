@@ -20,12 +20,6 @@ type Repeater interface {
 	RepeatContext(ctx context.Context, repeatFunc func() bool) (success bool)
 }
 
-type FailureRepeater interface {
-	Repeater
-	RepeatFailure(repeatFunc func() bool, failureFunc func())
-	RepeatFailureContext(ctx context.Context, repeatFunc func() bool, failureFunc func())
-}
-
 func NewRepeater(n int, sleeper Sleeper) Repeater {
 	return &repeater{repeatTimes: n, sleeper: sleeper}
 }
