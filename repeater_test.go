@@ -136,7 +136,7 @@ func Test_Repeater_Context_False(t *testing.T) {
 			Sleeper:        repeater.StandardSleeper(time.Second),
 			RepeatCount:    5,
 			ContextTimeout: time.Millisecond * 4500,
-			RepeatFunc: func(ctx context.Context, _ int) bool {
+			RepeatFunc: func(context.Context, int) bool {
 				<-time.After(time.Second)
 
 				return true
