@@ -17,7 +17,7 @@ RepeatContext return false if repeat count exceeded or context done
 */
 type Repeater interface {
 	Repeat(repeatFunc func() bool) (success bool)
-	RepeatContext(ctx context.Context, repeatFunc func() bool) (success bool)
+	RepeatContext(ctx context.Context, repeatFunc func(ctx context.Context) bool) (success bool)
 }
 
 func NewRepeater(n int, sleeper Sleeper) Repeater {
@@ -36,7 +36,7 @@ func (r *repeater) Repeat(repeatFunc func() bool) (success bool) {
 	}
 
 	for i := 0; i < r.repeatTimes; i++ {
-		time.Sleep(r.sleeper.SleepTime(i))
+		<-time.After(r.sleeper.SleepTime(i))
 		needRepeat = repeatFunc()
 
 		if !needRepeat {
@@ -47,54 +47,42 @@ func (r *repeater) Repeat(repeatFunc func() bool) (success bool) {
 	return false
 }
 
-func (r *repeater) RepeatContext(ctx context.Context, repeatFunc func() bool) (success bool) {
-	needRepeat := repeatFunc()
+func (r *repeater) RepeatContext(ctx context.Context, repeatFunc func(ctx context.Context) bool) (success bool) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	needRepeat := repeatFunc(ctx)
 	if !needRepeat {
 		return true
 	}
 
-	repeatCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	for i := range r.repeatTimes {
+		sleepTime := r.sleeper.SleepTime(i)
+		if sleepTime <= 0 {
+			needRepeat := repeatFunc(ctx)
+			if !needRepeat {
+				return true
+			}
 
-	execCh := make(chan struct{})
-	defer close(execCh)
-
-	ticker := r.tickerContext(repeatCtx, execCh)
-
-	for range ticker {
-		needRepeat := repeatFunc()
-		if !needRepeat {
-			return true
+			continue
 		}
 
-		execCh <- struct{}{}
+		timer := time.NewTimer(sleepTime)
+
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+
+			return false
+		case <-timer.C:
+			needRepeat := repeatFunc(ctx)
+			if !needRepeat {
+				return true
+			}
+		}
 	}
 
 	return false
-}
-
-func (r *repeater) tickerContext(ctx context.Context, ch chan struct{}) <-chan struct{} {
-	ticker := make(chan struct{})
-
-	go func() {
-		defer close(ticker)
-
-		for repeatCount := 0; repeatCount < r.repeatTimes; repeatCount++ {
-			sleepTime := r.sleeper.SleepTime(repeatCount)
-			timer := time.NewTimer(sleepTime)
-
-			select {
-			case <-ctx.Done():
-				return
-			case <-timer.C:
-				ticker <- struct{}{}
-			}
-
-			<-ch
-		}
-	}()
-
-	return ticker
 }
 
 type PauseSleeper []time.Duration
@@ -113,7 +101,7 @@ func (p PauseSleeper) SleepTime(repeatCount int) time.Duration {
 
 type StandardSleeper time.Duration
 
-func (p StandardSleeper) SleepTime(repeatCount int) time.Duration {
+func (p StandardSleeper) SleepTime(int) time.Duration {
 	return time.Duration(p)
 }
 
@@ -135,3 +123,6 @@ func fibonacciIterative(n int) int {
 
 	return n1
 }
+
+// executed: 1 1 1
+// sleeped:  111111

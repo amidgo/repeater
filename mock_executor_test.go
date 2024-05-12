@@ -1,6 +1,7 @@
 package repeater_test
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -40,6 +41,18 @@ func (d *MockExecutor) SetCleanupFunc() {
 }
 
 func (d *MockExecutor) Execute() bool {
+	select {
+	case <-d.executeDeadline:
+		d.testing.Fatal("deadline time is over")
+
+		return false
+	default:
+		d.expectedExecuteCount--
+		return d.expectedExecuteCount > 0
+	}
+}
+
+func (d *MockExecutor) ExecuteContext(context.Context) bool {
 	select {
 	case <-d.executeDeadline:
 		d.testing.Fatal("deadline time is over")

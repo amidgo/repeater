@@ -74,7 +74,7 @@ func (c *RepeaterCase) testRepeatContext(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.RepeatDeadline())
 	defer cancel()
 
-	success := repeater.RepeatContext(ctx, executor.Execute)
+	success := repeater.RepeatContext(ctx, executor.ExecuteContext)
 
 	assert.True(t, success)
 }
@@ -128,15 +128,19 @@ func Test_Repeater_Context_False(t *testing.T) {
 			Sleeper:              repeater.StandardSleeper(time.Second),
 			RepeatCount:          5,
 			ContextTimeout:       time.Millisecond * 4500,
-			RepeatFunc:           func(int) bool { return true },
+			RepeatFunc:           func(context.Context, int) bool { return true },
 			ExpectedExecuteCount: 5,
 			ExpectedResult:       false,
 		},
 		&RepeaterContextCase{
-			Sleeper:              repeater.StandardSleeper(time.Second),
-			RepeatCount:          5,
-			ContextTimeout:       time.Millisecond * 4500,
-			RepeatFunc:           func(int) bool { time.Sleep(time.Second); return true },
+			Sleeper:        repeater.StandardSleeper(time.Second),
+			RepeatCount:    5,
+			ContextTimeout: time.Millisecond * 4500,
+			RepeatFunc: func(ctx context.Context, _ int) bool {
+				<-time.After(time.Second)
+
+				return true
+			},
 			ExpectedExecuteCount: 3,
 			ExpectedResult:       false,
 		},
@@ -144,7 +148,7 @@ func Test_Repeater_Context_False(t *testing.T) {
 			Sleeper:              repeater.StandardSleeper(time.Second),
 			RepeatCount:          5,
 			ContextTimeout:       time.Millisecond * 5500,
-			RepeatFunc:           func(count int) bool { return count < 5 },
+			RepeatFunc:           func(_ context.Context, count int) bool { return count < 5 },
 			ExpectedExecuteCount: 6,
 			ExpectedResult:       true,
 		},
@@ -155,7 +159,7 @@ type RepeaterContextCase struct {
 	Sleeper              repeater.Sleeper
 	RepeatCount          int
 	ContextTimeout       time.Duration
-	RepeatFunc           func(count int) bool
+	RepeatFunc           func(ctx context.Context, count int) bool
 	ExpectedExecuteCount int
 	ExpectedResult       bool
 }
@@ -177,8 +181,10 @@ func (c *RepeaterContextCase) Test(t *testing.T) {
 
 	var count int
 	res := repeater.RepeatContext(ctx,
-		func() bool {
-			res := c.RepeatFunc(count)
+		func(ctx context.Context) bool {
+			deadline, _ := ctx.Deadline()
+			t.Logf("count %d, deadline %s", count, time.Until(deadline))
+			res := c.RepeatFunc(ctx, count)
 			count++
 
 			return res
