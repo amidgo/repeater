@@ -7,7 +7,7 @@ import (
 
 	"github.com/amidgo/repeater"
 	"github.com/amidgo/tester"
-	"gotest.tools/v3/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 type ProgressionTest struct {
