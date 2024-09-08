@@ -7,64 +7,116 @@ import (
 
 	"github.com/amidgo/repeater"
 	"github.com/amidgo/tester"
-	"github.com/stretchr/testify/assert"
+	"gotest.tools/v3/assert"
 )
+
+type ProgressionTest struct {
+	Progression      repeater.DurationProgression
+	Time             uint64
+	ExpectedDuration time.Duration
+}
+
+func (s *ProgressionTest) Name() string {
+	return fmt.Sprintf("repeat count %d expected sleep time %s", s.Time, s.ExpectedDuration)
+}
+
+func (s *ProgressionTest) Test(t *testing.T) {
+	sleepTime := s.Progression.Duration(s.Time)
+
+	assert.Equal(t, s.ExpectedDuration, sleepTime)
+}
 
 func Test_ConstantProgression(t *testing.T) {
 	tester.RunNamedTesters(t,
-		NewSleeperTestСase(repeater.ConstantProgression(time.Second), 132, time.Second),
-		NewSleeperTestСase(repeater.ConstantProgression(time.Second), 1, time.Second),
-		NewSleeperTestСase(repeater.ConstantProgression(time.Second*10), 132, time.Second*10),
+		&ProgressionTest{
+			Progression:      repeater.ConstantProgression(time.Second),
+			Time:             132,
+			ExpectedDuration: time.Second,
+		},
+		&ProgressionTest{
+			Progression:      repeater.ConstantProgression(time.Second),
+			Time:             1,
+			ExpectedDuration: time.Second,
+		},
+		&ProgressionTest{
+			Progression:      repeater.ConstantProgression(time.Second * 10),
+			Time:             1,
+			ExpectedDuration: time.Second * 10,
+		},
 	)
 }
 
 func Test_ArifmeticProgression(t *testing.T) {
 	tester.RunNamedTesters(t,
-		NewSleeperTestСase(repeater.NewArifmeticProgression(time.Second, time.Second*2), 1, time.Second*3),
-		NewSleeperTestСase(repeater.NewArifmeticProgression(time.Second, time.Second*2), 0, time.Second),
-		NewSleeperTestСase(repeater.NewArifmeticProgression(time.Second, time.Second*2), 3, time.Second*7),
+		&ProgressionTest{
+			Progression:      repeater.NewArifmeticProgression(time.Second, time.Second*2),
+			Time:             1,
+			ExpectedDuration: time.Second * 3,
+		},
+		&ProgressionTest{
+			Progression:      repeater.NewArifmeticProgression(time.Second, time.Second*2),
+			Time:             0,
+			ExpectedDuration: time.Second,
+		},
+		&ProgressionTest{
+			Progression:      repeater.NewArifmeticProgression(time.Second, time.Second*2),
+			Time:             3,
+			ExpectedDuration: time.Second * 7,
+		},
 	)
 }
 
 func Test_FibanacciProgression(t *testing.T) {
 	tester.RunNamedTesters(t,
-		NewSleeperTestСase(repeater.FibonacciProgression(time.Second), 0, time.Second),
-		NewSleeperTestСase(repeater.FibonacciProgression(time.Second), 1, time.Second),
-		NewSleeperTestСase(repeater.FibonacciProgression(time.Second), 2, time.Second*2),
-		NewSleeperTestСase(repeater.FibonacciProgression(time.Second), 3, time.Second*3),
-		NewSleeperTestСase(repeater.FibonacciProgression(time.Second), 4, time.Second*5),
-		NewSleeperTestСase(repeater.FibonacciProgression(time.Second), 5, time.Second*8),
-		NewSleeperTestСase(repeater.FibonacciProgression(time.Second), 6, time.Second*13),
-		NewSleeperTestСase(repeater.FibonacciProgression(time.Second), 7, time.Second*21),
-		NewSleeperTestСase(repeater.FibonacciProgression(time.Second), 8, time.Second*34),
-		NewSleeperTestСase(repeater.FibonacciProgression(time.Second), 9, time.Second*55),
+		&ProgressionTest{
+			Progression:      repeater.FibonacciProgression(time.Second),
+			Time:             0,
+			ExpectedDuration: time.Second,
+		},
+		&ProgressionTest{
+			Progression:      repeater.FibonacciProgression(time.Second),
+			Time:             1,
+			ExpectedDuration: time.Second,
+		},
+		&ProgressionTest{
+			Progression:      repeater.FibonacciProgression(time.Second),
+			Time:             2,
+			ExpectedDuration: time.Second * 2,
+		},
+		&ProgressionTest{
+			Progression:      repeater.FibonacciProgression(time.Second),
+			Time:             3,
+			ExpectedDuration: time.Second * 3,
+		},
+		&ProgressionTest{
+			Progression:      repeater.FibonacciProgression(time.Second),
+			Time:             4,
+			ExpectedDuration: time.Second * 5,
+		},
+		&ProgressionTest{
+			Progression:      repeater.FibonacciProgression(time.Second),
+			Time:             5,
+			ExpectedDuration: time.Second * 8,
+		},
+		&ProgressionTest{
+			Progression:      repeater.FibonacciProgression(time.Second),
+			Time:             6,
+			ExpectedDuration: time.Second * 13,
+		},
+		&ProgressionTest{
+			Progression:      repeater.FibonacciProgression(time.Second),
+			Time:             7,
+			ExpectedDuration: time.Second * 21,
+		},
+		&ProgressionTest{
+			Progression:      repeater.FibonacciProgression(time.Second),
+			Time:             8,
+			ExpectedDuration: time.Second * 34,
+		},
+		&ProgressionTest{
+			Progression:      repeater.FibonacciProgression(time.Second),
+			Time:             9,
+			ExpectedDuration: time.Second * 55,
+		},
 	)
-}
-
-type SleeperTestCase struct {
-	Sleeper           repeater.DurationProgression
-	RepeatCount       uint64
-	ExpectedSleepTime time.Duration
-}
-
-func NewSleeperTestСase(
-	sleeper repeater.DurationProgression,
-	repeatCount uint64,
-	expectedSleepTime time.Duration,
-) SleeperTestCase {
-	return SleeperTestCase{
-		Sleeper:           sleeper,
-		RepeatCount:       repeatCount,
-		ExpectedSleepTime: expectedSleepTime,
-	}
-}
-
-func (s SleeperTestCase) Name() string {
-	return fmt.Sprintf("repeat count %d expected sleep time %s", s.RepeatCount, s.ExpectedSleepTime)
-}
-
-func (s SleeperTestCase) Test(t *testing.T) {
-	sleepTime := s.Sleeper.Duration(s.RepeatCount)
-
-	assert.Equal(t, s.ExpectedSleepTime, sleepTime)
 }

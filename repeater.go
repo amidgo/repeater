@@ -6,7 +6,7 @@ import (
 )
 
 type DurationProgression interface {
-	Duration(times uint64) time.Duration
+	Duration(time uint64) time.Duration
 }
 
 type Repeater interface {
@@ -97,8 +97,8 @@ func NewArifmeticProgression(initial, delta time.Duration) ArifmeticProggression
 	return ArifmeticProggression{initial: initial, delta: delta}
 }
 
-func (a ArifmeticProggression) Duration(times uint64) time.Duration {
-	return a.initial + (a.delta * time.Duration(times))
+func (a ArifmeticProggression) Duration(tm uint64) time.Duration {
+	return a.initial + (a.delta * time.Duration(tm))
 }
 
 type ConstantProgression time.Duration
@@ -109,8 +109,8 @@ func (p ConstantProgression) Duration(uint64) time.Duration {
 
 type FibonacciProgression time.Duration
 
-func (s FibonacciProgression) Duration(repeatCount uint64) time.Duration {
-	return time.Duration(s) * time.Duration(fibonacciIterative(repeatCount+1))
+func (s FibonacciProgression) Duration(tm uint64) time.Duration {
+	return time.Duration(s) * time.Duration(fibonacciIterative(tm+1))
 }
 
 func fibonacciIterative(n uint64) uint64 {
