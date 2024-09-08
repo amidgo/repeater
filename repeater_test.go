@@ -243,6 +243,30 @@ func Test_RepeatContext(t *testing.T) {
 			ExpectedRepeatDuration: time.Millisecond * 2500,
 			ExpectedSuccess:        false,
 		},
+		&RepeatContextTest{
+			CaseName:       "success repeat after first call",
+			Progression:    repeater.ConstantProgression(time.Second),
+			RepeatCount:    2,
+			ContextTimeout: time.Second * 3,
+			RepeatOperations: NewRepeatOperaions(
+				RepeatOperation{
+					Duration: time.Millisecond * 500,
+					OK:       false,
+				},
+				// 1 second pause
+				RepeatOperation{
+					Duration: time.Millisecond * 500,
+					OK:       true,
+				},
+				// 1 second pause
+				RepeatOperation{
+					Duration: time.Millisecond * 1000,
+					OK:       false,
+				},
+			),
+			ExpectedRepeatDuration: time.Second * 2,
+			ExpectedSuccess:        true,
+		},
 	)
 }
 
