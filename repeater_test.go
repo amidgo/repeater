@@ -2,213 +2,301 @@ package repeater_test
 
 import (
 	"context"
-	"fmt"
-	"runtime"
 	"testing"
 	"time"
 
 	"github.com/amidgo/repeater"
 	"github.com/amidgo/tester"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func Test_Repeater_Full_Repeat(t *testing.T) {
+type RepeatTest struct {
+	CaseName               string
+	Progression            repeater.DurationProgression
+	RepeatCount            uint64
+	RepeatOperations       RepeatOperations
+	ExpectedSuccess        bool
+	ExpectedRepeatDuration time.Duration
+}
+
+func (r *RepeatTest) Name() string {
+	return r.CaseName
+}
+
+func (r *RepeatTest) Test(t *testing.T) {
 	t.Parallel()
 
-	tester.RunNamedTesters(t,
-		RepeaterCase{
-			RepeatCount: 2,
-			RepeatPause: time.Second,
-		},
-		RepeaterCase{
-			RepeatCount: 1,
-			RepeatPause: time.Second,
-		},
-		RepeaterCase{
-			RepeatCount: 10,
-			RepeatPause: time.Millisecond * 500,
-		},
-		RepeaterCase{
-			RepeatCount: 1,
-			RepeatPause: time.Millisecond * 500,
-		},
-		RepeaterCase{
-			RepeatCount: -1,
-			RepeatPause: time.Second,
-		},
-	)
+	now := time.Now()
 
-	t.Log(runtime.NumGoroutine())
-}
+	repeater := repeater.New(r.Progression)
 
-type RepeaterCase struct {
-	RepeatCount int
-	RepeatPause time.Duration
-}
+	success := repeater.Repeat(r.RepeatOperations.Execute(), r.RepeatCount)
+	require.Equal(t, r.ExpectedSuccess, success)
 
-func (c RepeaterCase) Name() string {
-	return fmt.Sprintf("repeater test count %d, repeat pause %s", c.RepeatCount, c.RepeatPause)
-}
+	finishTime := time.Now()
 
-func (c RepeaterCase) Test(t *testing.T) {
-	t.Parallel()
-	t.Run("repeat", c.testRepeat)
-	t.Run("context repeat", c.testRepeatContext)
-}
+	diff := finishTime.Sub(now) - r.ExpectedRepeatDuration
 
-func (c *RepeaterCase) testRepeat(t *testing.T) {
-	t.Parallel()
-	executor := c.MockExecutor(t)
-	repeater := c.Repeater()
-
-	success := repeater.Repeat(executor.Execute)
-
-	assert.True(t, success)
-}
-
-func (c *RepeaterCase) testRepeatContext(t *testing.T) {
-	t.Parallel()
-	executor := c.MockExecutor(t)
-	repeater := c.Repeater()
-
-	ctx, cancel := context.WithTimeout(context.Background(), c.RepeatDeadline())
-	defer cancel()
-
-	success := repeater.RepeatContext(ctx, executor.ExecuteContext)
-
-	assert.True(t, success)
-}
-
-func (c *RepeaterCase) MockExecutor(t *testing.T) *MockExecutor {
-	md := NewMockExecutor(t, c.ExecuteCount(), c.RepeatDeadline())
-
-	return md
-}
-
-func (c *RepeaterCase) ExecuteCount() int {
-	return 1 + max(0, c.RepeatCount)
-}
-
-func (c *RepeaterCase) RepeatDeadline() time.Duration {
-	return c.AddedTime() + c.RepeatedExecuteDuration()
-}
-
-func (c *RepeaterCase) AddedTime() time.Duration {
-	return time.Millisecond * 90
-}
-
-func (c *RepeaterCase) RepeatedExecuteDuration() time.Duration {
-	repeatedExecuteDuration := time.Duration(c.RepeatCount) * c.RepeatPause
-	if repeatedExecuteDuration < 0 {
-		return 0
+	if diff.Abs() > time.Millisecond*10 {
+		t.Fatalf("too big difference between actual and expected repeat time: %s", diff)
 	}
-
-	return repeatedExecuteDuration
 }
 
-func (c *RepeaterCase) Repeater() repeater.Repeater {
-	return repeater.NewRepeater(c.RepeatCount, repeater.StandardSleeper(c.RepeatPause))
-}
-
-func Test_Repeater_False(t *testing.T) {
-	t.Parallel()
-	sleeper := repeater.NewPauseSleeper()
-
-	repeater := repeater.NewRepeater(10, sleeper)
-
-	res := repeater.Repeat(func() bool { return true })
-	assert.False(t, res)
-}
-
-func Test_Repeater_Context_False(t *testing.T) {
+func Test_Repeat(t *testing.T) {
 	t.Parallel()
 
 	tester.RunNamedTesters(t,
-		&RepeaterContextCase{
-			Sleeper:              repeater.StandardSleeper(time.Second),
-			RepeatCount:          5,
-			ContextTimeout:       time.Millisecond * 4500,
-			RepeatFunc:           func(context.Context, int) bool { return true },
-			ExpectedExecuteCount: 5,
-			ExpectedResult:       false,
+		&RepeatTest{
+			CaseName:    "basic repeat",
+			Progression: repeater.ConstantProgression(time.Second),
+			RepeatCount: 2,
+			RepeatOperations: NewRepeatOperaions(
+				RepeatOperation{
+					Duration: time.Millisecond * 500,
+					OK:       false,
+				},
+				// 1 second pause
+				RepeatOperation{
+					Duration: time.Millisecond * 500,
+					OK:       false,
+				},
+				// 1 second pause
+				RepeatOperation{
+					Duration: time.Millisecond * 1000,
+					OK:       false,
+				},
+			),
+			ExpectedRepeatDuration: time.Second * 4,
+			ExpectedSuccess:        false,
 		},
-		&RepeaterContextCase{
-			Sleeper:        repeater.StandardSleeper(time.Second),
-			RepeatCount:    5,
-			ContextTimeout: time.Millisecond * 4500,
-			RepeatFunc: func(context.Context, int) bool {
-				<-time.After(time.Second)
-
-				return true
-			},
-			ExpectedExecuteCount: 3,
-			ExpectedResult:       false,
+		&RepeatTest{
+			CaseName:    "zero delay repeat",
+			Progression: repeater.ConstantProgression(0),
+			RepeatCount: 2,
+			RepeatOperations: NewRepeatOperaions(
+				RepeatOperation{
+					Duration: time.Millisecond * 500,
+					OK:       false,
+				},
+				// 1 second pause
+				RepeatOperation{
+					Duration: time.Millisecond * 500,
+					OK:       false,
+				},
+				// 1 second pause
+				RepeatOperation{
+					Duration: time.Millisecond * 1000,
+					OK:       false,
+				},
+			),
+			ExpectedRepeatDuration: time.Second * 2,
+			ExpectedSuccess:        false,
 		},
-		&RepeaterContextCase{
-			Sleeper:              repeater.StandardSleeper(time.Second),
-			RepeatCount:          5,
-			ContextTimeout:       time.Millisecond * 5500,
-			RepeatFunc:           func(_ context.Context, count int) bool { return count < 5 },
-			ExpectedExecuteCount: 6,
-			ExpectedResult:       true,
+		&RepeatTest{
+			CaseName:    "success repeat after first call",
+			Progression: repeater.ConstantProgression(time.Second),
+			RepeatCount: 2,
+			RepeatOperations: NewRepeatOperaions(
+				RepeatOperation{
+					Duration: time.Millisecond * 500,
+					OK:       false,
+				},
+				// 1 second pause
+				RepeatOperation{
+					Duration: time.Millisecond * 500,
+					OK:       true,
+				},
+				// 1 second pause
+				RepeatOperation{
+					Duration: time.Millisecond * 1000,
+					OK:       false,
+				},
+			),
+			ExpectedRepeatDuration: time.Second * 2,
+			ExpectedSuccess:        true,
+		},
+		&RepeatTest{
+			CaseName:    "zero repeat count",
+			Progression: repeater.ConstantProgression(time.Second),
+			RepeatCount: 0,
+			RepeatOperations: NewRepeatOperaions(
+				RepeatOperation{
+					Duration: time.Millisecond * 500,
+					OK:       false,
+				},
+			),
+			ExpectedRepeatDuration: time.Millisecond * 500,
+			ExpectedSuccess:        false,
 		},
 	)
 }
 
-type RepeaterContextCase struct {
-	Sleeper              repeater.Sleeper
-	RepeatCount          int
-	ContextTimeout       time.Duration
-	RepeatFunc           func(ctx context.Context, count int) bool
-	ExpectedExecuteCount int
-	ExpectedResult       bool
+type RepeatContextTest struct {
+	CaseName               string
+	Progression            repeater.DurationProgression
+	RepeatCount            uint64
+	ContextTimeout         time.Duration
+	RepeatOperations       RepeatOperations
+	ExpectedSuccess        bool
+	ExpectedRepeatDuration time.Duration
 }
 
-func (c *RepeaterContextCase) Name() string {
-	return fmt.Sprintf(
-		"repeat count %d, context timeout %s, expected execute count %d, expected result %t",
-		c.RepeatCount, c.ContextTimeout, c.ExpectedExecuteCount, c.ExpectedResult,
-	)
+func (r *RepeatContextTest) Name() string {
+	return r.CaseName
 }
 
-func (c *RepeaterContextCase) Test(t *testing.T) {
+func (r *RepeatContextTest) Test(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.ContextTimeout)
+	now := time.Now()
+
+	ctx, cancel := context.WithDeadline(context.Background(), now.Add(r.ContextTimeout))
 	defer cancel()
 
-	repeater := repeater.NewRepeater(c.RepeatCount, c.Sleeper)
+	repeater := repeater.New(r.Progression)
 
-	var count int
-	res := repeater.RepeatContext(ctx,
-		func(ctx context.Context) bool {
-			deadline, _ := ctx.Deadline()
-			t.Logf("count %d, deadline %s", count, time.Until(deadline))
-			res := c.RepeatFunc(ctx, count)
-			count++
+	success := repeater.RepeatContext(ctx, r.RepeatOperations.ExecuteContext(), r.RepeatCount)
+	require.Equal(t, r.ExpectedSuccess, success)
 
-			return res
-		},
-	)
+	finishTime := time.Now()
 
-	assert.Equal(t, c.ExpectedResult, res)
-	assert.Equal(t, c.ExpectedExecuteCount, count)
+	diff := finishTime.Sub(now) - r.ExpectedRepeatDuration
+
+	if diff.Abs() > time.Millisecond*10 {
+		t.Fatalf("too big difference between actual and expected repeat time: %s", diff)
+	}
 }
 
-/*
-	repeat cycle
-	first do - 1 seconds
-	sleep(1s) - 2 seconds
-	second do - 3 seconds
-	sleep(1s) - 4 seconds
-	third do  - 5 seconds
+func Test_RepeatContext(t *testing.T) {
+	t.Parallel()
 
-	sleep(1s) - 3 seconds
-	fourth do - 3 seconds
-	sleep(1s) - 4 seconds
-	fifth do  - 4 seconds
-	sleep(1s) - 5 seconds
-	sixth do  - 5 seconds
-	context canceled
-	return false
-*/
+	tester.RunNamedTesters(t,
+		&RepeatContextTest{
+			CaseName:       "basic repeat",
+			Progression:    repeater.ConstantProgression(time.Second),
+			RepeatCount:    2,
+			ContextTimeout: time.Second * 5,
+			RepeatOperations: NewRepeatOperaions(
+				RepeatOperation{
+					Duration: time.Millisecond * 500,
+					OK:       false,
+				},
+				// 1 second pause
+				RepeatOperation{
+					Duration: time.Millisecond * 500,
+					OK:       false,
+				},
+				// 1 second pause
+				RepeatOperation{
+					Duration: time.Millisecond * 1000,
+					OK:       false,
+				},
+			),
+			ExpectedRepeatDuration: time.Second * 4,
+			ExpectedSuccess:        false,
+		},
+		&RepeatContextTest{
+			CaseName:       "basic repeat, context canceled after 1.75 seconds during execute",
+			Progression:    repeater.ConstantProgression(time.Second),
+			RepeatCount:    2,
+			ContextTimeout: time.Millisecond * 1750,
+			RepeatOperations: NewRepeatOperaions(
+				RepeatOperation{
+					Duration: time.Millisecond * 500,
+					OK:       false,
+				},
+				// 1 second pause
+				RepeatOperation{
+					Duration: time.Millisecond * 500,
+					OK:       true,
+				},
+				// 1 second pause
+				RepeatOperation{
+					Duration: time.Millisecond * 1000,
+					OK:       false,
+				},
+			),
+			ExpectedRepeatDuration: time.Millisecond * 1750,
+			ExpectedSuccess:        false,
+		},
+		&RepeatContextTest{
+			CaseName:       "basic repeat, context canceled after 2.5 seconds during pause",
+			Progression:    repeater.ConstantProgression(time.Second),
+			RepeatCount:    2,
+			ContextTimeout: time.Millisecond * 2500,
+			RepeatOperations: NewRepeatOperaions(
+				RepeatOperation{
+					Duration: time.Millisecond * 500,
+					OK:       false,
+				},
+				// 1 second pause
+				RepeatOperation{
+					Duration: time.Millisecond * 500,
+					OK:       false,
+				},
+				// 1 second pause
+				RepeatOperation{
+					Duration: time.Millisecond * 1000,
+					OK:       false,
+				},
+			),
+			ExpectedRepeatDuration: time.Millisecond * 2500,
+			ExpectedSuccess:        false,
+		},
+	)
+}
+
+type RepeatOperations struct {
+	ops []RepeatOperation
+}
+
+func NewRepeatOperaions(ops ...RepeatOperation) RepeatOperations {
+	return RepeatOperations{ops: ops}
+}
+
+func (r *RepeatOperations) Execute() func() bool {
+	return func() bool {
+		op := r.pop()
+
+		return op.Execute()()
+	}
+}
+
+func (r *RepeatOperations) ExecuteContext() func(context.Context) bool {
+	return func(ctx context.Context) bool {
+		op := r.pop()
+
+		return op.ExecuteContext()(ctx)
+	}
+}
+
+func (r *RepeatOperations) pop() RepeatOperation {
+	op := r.ops[0]
+	r.ops = r.ops[1:]
+
+	return op
+}
+
+type RepeatOperation struct {
+	Duration time.Duration
+	OK       bool
+}
+
+func (r RepeatOperation) Execute() func() bool {
+	return func() bool {
+		<-time.After(r.Duration)
+
+		return r.OK
+	}
+}
+
+func (r RepeatOperation) ExecuteContext() func(context.Context) bool {
+	return func(ctx context.Context) bool {
+		select {
+		case <-time.After(r.Duration):
+			return r.OK
+		case <-ctx.Done():
+			return false
+		}
+	}
+}

@@ -1,5 +1,7 @@
 github.com/amidgo/tester v0.0.3 h1:rL9PsdC4G92xv2GlUB8SbgtGTmmgqoMLYTAWQ8f23cI=
 github.com/amidgo/tester v0.0.3/go.mod h1:zVytLe/lQwgcStyZmV+4crnrGk3koa+New7BAC3IoNs=
+github.com/amidgo/tester v0.0.6 h1:U/9CRID9Yv+pwqNMYznQWoaJrCGYd0TrlbI0Dbr7YEg=
+github.com/amidgo/tester v0.0.6/go.mod h1:u0D7i1Y9Vp2KugELj1znrMXBxVJDgxBDR3Ymej/sbKk=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
