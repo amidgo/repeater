@@ -6,6 +6,14 @@ import (
 )
 
 type DurationProgression interface {
+	// sleep duration by execute time
+	// example:
+	// ArifmeticProgression
+	// initial: 1s delta: 0.5s
+	// ArifmeticProgression.Duration(0) = 1s
+	// ArifmeticProgression.Duration(1) = 1.5s
+	// ArifmeticProgression.Duration(2) = 2s
+	// ArifmeticProgression.Duration(3) = 2.5s
 	Duration(time uint64) time.Duration
 }
 
