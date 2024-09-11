@@ -9,20 +9,15 @@ type DurationProgression interface {
 	Duration(time uint64) time.Duration
 }
 
-type Repeater interface {
-	Repeat(f func() (ok bool), count uint64) (success bool)
-	RepeatContext(ctx context.Context, f func(ctx context.Context) (ok bool), count uint64) (success bool)
-}
-
-func New(progression DurationProgression) Repeater {
-	return &repeater{progression: progression}
-}
-
-type repeater struct {
+type Repeater struct {
 	progression DurationProgression
 }
 
-func (r *repeater) Repeat(f func() bool, count uint64) (success bool) {
+func New(progression DurationProgression) *Repeater {
+	return &Repeater{progression: progression}
+}
+
+func (r *Repeater) Repeat(f func() bool, count uint64) (success bool) {
 	ok := f()
 	if ok {
 		return true
@@ -50,7 +45,7 @@ func (r *repeater) Repeat(f func() bool, count uint64) (success bool) {
 	return false
 }
 
-func (r *repeater) RepeatContext(ctx context.Context, f func(ctx context.Context) bool, count uint64) (success bool) {
+func (r *Repeater) RepeatContext(ctx context.Context, f func(ctx context.Context) bool, count uint64) (success bool) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
