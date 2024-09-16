@@ -15,7 +15,7 @@ type RepeatTest struct {
 	Progression            repeater.DurationProgression
 	RepeatCount            uint64
 	RepeatOperations       RepeatOperations
-	ExpectedSuccess        bool
+	ExpectedFinished       bool
 	ExpectedRepeatDuration time.Duration
 }
 
@@ -30,8 +30,8 @@ func (r *RepeatTest) Test(t *testing.T) {
 
 	repeater := repeater.New(r.Progression)
 
-	success := repeater.Repeat(r.RepeatOperations.Execute(), r.RepeatCount)
-	require.Equal(t, r.ExpectedSuccess, success)
+	finished := repeater.Repeat(r.RepeatOperations.Execute(), r.RepeatCount)
+	require.Equal(t, r.ExpectedFinished, finished)
 
 	finishTime := time.Now()
 
@@ -67,7 +67,7 @@ func Test_Repeat(t *testing.T) {
 				},
 			),
 			ExpectedRepeatDuration: time.Second * 4,
-			ExpectedSuccess:        false,
+			ExpectedFinished:       false,
 		},
 		&RepeatTest{
 			CaseName:    "zero delay repeat",
@@ -90,7 +90,7 @@ func Test_Repeat(t *testing.T) {
 				},
 			),
 			ExpectedRepeatDuration: time.Second * 2,
-			ExpectedSuccess:        false,
+			ExpectedFinished:       false,
 		},
 		&RepeatTest{
 			CaseName:    "success repeat after first call",
@@ -113,7 +113,7 @@ func Test_Repeat(t *testing.T) {
 				},
 			),
 			ExpectedRepeatDuration: time.Second * 2,
-			ExpectedSuccess:        true,
+			ExpectedFinished:       true,
 		},
 		&RepeatTest{
 			CaseName:    "zero repeat count",
@@ -126,7 +126,7 @@ func Test_Repeat(t *testing.T) {
 				},
 			),
 			ExpectedRepeatDuration: time.Millisecond * 500,
-			ExpectedSuccess:        false,
+			ExpectedFinished:       false,
 		},
 	)
 }

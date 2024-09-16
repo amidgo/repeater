@@ -7,6 +7,7 @@ import (
 
 type DurationProgression interface {
 	// sleep duration by execute time
+	// zero attempt is initial timeout
 	// example:
 	// ArifmeticProgression
 	// initial: 1s delta: 0.5s
@@ -14,7 +15,7 @@ type DurationProgression interface {
 	// ArifmeticProgression.Duration(1) = 1.5s
 	// ArifmeticProgression.Duration(2) = 2s
 	// ArifmeticProgression.Duration(3) = 2.5s
-	Duration(time uint64) time.Duration
+	Duration(attempt uint64) time.Duration
 }
 
 type Repeater struct {
@@ -25,17 +26,17 @@ func New(progression DurationProgression) *Repeater {
 	return &Repeater{progression: progression}
 }
 
-func (r *Repeater) Repeat(f func() bool, count uint64) (success bool) {
-	ok := f()
-	if ok {
+func (r *Repeater) Repeat(f func() bool, retryCount uint64) (finished bool) {
+	finished = f()
+	if finished {
 		return true
 	}
 
-	for i := range count {
-		sleepTime := r.progression.Duration(i)
+	for attempt := range retryCount {
+		sleepTime := r.progression.Duration(attempt)
 		if sleepTime <= 0 {
-			ok := f()
-			if ok {
+			finished = f()
+			if finished {
 				return true
 			}
 
@@ -44,8 +45,8 @@ func (r *Repeater) Repeat(f func() bool, count uint64) (success bool) {
 
 		<-time.After(sleepTime)
 
-		ok := f()
-		if ok {
+		finished = f()
+		if finished {
 			return true
 		}
 	}
@@ -53,20 +54,17 @@ func (r *Repeater) Repeat(f func() bool, count uint64) (success bool) {
 	return false
 }
 
-func (r *Repeater) RepeatContext(ctx context.Context, f func(ctx context.Context) bool, count uint64) (success bool) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	ok := f(ctx)
-	if ok {
+func (r *Repeater) RepeatContext(ctx context.Context, f func(ctx context.Context) bool, retryCount uint64) (finished bool) {
+	finished = f(ctx)
+	if finished {
 		return true
 	}
 
-	for i := range count {
-		sleepTime := r.progression.Duration(i)
+	for attempt := range retryCount {
+		sleepTime := r.progression.Duration(attempt)
 		if sleepTime <= 0 {
-			ok := f(ctx)
-			if ok {
+			finished = f(ctx)
+			if finished {
 				return true
 			}
 
@@ -81,8 +79,8 @@ func (r *Repeater) RepeatContext(ctx context.Context, f func(ctx context.Context
 
 			return false
 		case <-timer.C:
-			ok := f(ctx)
-			if ok {
+			finished = f(ctx)
+			if finished {
 				return true
 			}
 		}
@@ -112,8 +110,8 @@ func (p ConstantProgression) Duration(uint64) time.Duration {
 
 type FibonacciProgression time.Duration
 
-func (s FibonacciProgression) Duration(tm uint64) time.Duration {
-	return time.Duration(s) * time.Duration(fibonacciIterative(tm+1))
+func (s FibonacciProgression) Duration(attempt uint64) time.Duration {
+	return time.Duration(s) * time.Duration(fibonacciIterative(attempt+1))
 }
 
 func fibonacciIterative(n uint64) uint64 {
