@@ -1,7 +1,7 @@
 //go:build go1.20
 // +build go1.20
 
-package http
+package httprepeater
 
 import "crypto/tls"
 

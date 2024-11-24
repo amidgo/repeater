@@ -1,4 +1,4 @@
-package http
+package httprepeater
 
 import (
 	"context"
@@ -34,6 +34,13 @@ var (
 type Repeater struct {
 	client   *http.Client
 	repeater *repeater.Repeater
+}
+
+func New(client *http.Client, rp *repeater.Repeater) *Repeater {
+	return &Repeater{
+		client:   client,
+		repeater: rp,
+	}
 }
 
 func (r *Repeater) Client() *http.Client {
