@@ -7,7 +7,6 @@ import (
 
 	"github.com/amidgo/repeater"
 	"github.com/amidgo/tester"
-	"github.com/stretchr/testify/assert"
 )
 
 type ProgressionTest struct {
@@ -23,7 +22,9 @@ func (s *ProgressionTest) Name() string {
 func (s *ProgressionTest) Test(t *testing.T) {
 	sleepTime := s.Progression.Duration(s.Time)
 
-	assert.Equal(t, s.ExpectedDuration, sleepTime)
+	if s.ExpectedDuration != sleepTime {
+		t.Fatalf("wrong duration, expected %s, actual %s", s.ExpectedDuration, sleepTime)
+	}
 }
 
 func Test_ConstantProgression(t *testing.T) {
