@@ -9,6 +9,12 @@ import (
 	"github.com/amidgo/repeater"
 )
 
+func Do(rp *repeater.Repeater, client *http.Client, req *http.Request, retryCount uint64) (*http.Response, error) {
+	httpRp := New(rp)
+
+	return httpRp.Do(client, req, retryCount)
+}
+
 var (
 	// A regular expression to match the error returned by net/http when the
 	// configured number of redirects is exhausted. This error isn't typed
@@ -32,26 +38,20 @@ var (
 )
 
 type Repeater struct {
-	client   *http.Client
 	repeater *repeater.Repeater
 }
 
-func New(client *http.Client, rp *repeater.Repeater) *Repeater {
+func New(rp *repeater.Repeater) *Repeater {
 	return &Repeater{
-		client:   client,
 		repeater: rp,
 	}
 }
 
-func (r *Repeater) Client() *http.Client {
-	return r.client
-}
-
-func (r *Repeater) Do(req *http.Request, retryCount uint64) (resp *http.Response, err error) {
+func (r *Repeater) Do(client *http.Client, req *http.Request, retryCount uint64) (resp *http.Response, err error) {
 	_ = r.repeater.RepeatContext(
 		req.Context(),
 		func(ctx context.Context) (finished bool) {
-			resp, err = r.client.Do(req)
+			resp, err = client.Do(req)
 
 			return shouldFinishRetry(resp, err)
 		},
