@@ -5,17 +5,34 @@ import (
 	"time"
 )
 
-type DurationProgression interface {
-	// sleep duration by execute time
-	// zero attempt is initial timeout
-	// example:
-	// ArifmeticProgression
-	// initial: 1s delta: 0.5s
-	// ArifmeticProgression.Duration(0) = 1s
-	// ArifmeticProgression.Duration(1) = 1.5s
-	// ArifmeticProgression.Duration(2) = 2s
-	// ArifmeticProgression.Duration(3) = 2.5s
-	Duration(attempt uint64) time.Duration
+type (
+	DurationProgression interface {
+		// sleep duration by execute time
+		// zero attempt is initial timeout
+		// example:
+		// ArifmeticProgression
+		// initial: 1s delta: 0.5s
+		// ArifmeticProgression.Duration(0) = 1s
+		// ArifmeticProgression.Duration(1) = 1.5s
+		// ArifmeticProgression.Duration(2) = 2s
+		// ArifmeticProgression.Duration(3) = 2.5s
+		Duration(attempt uint64) time.Duration
+	}
+
+	RepeatFunc        func() bool
+	RepeatFuncContext func(ctx context.Context) bool
+)
+
+func Repeat(progression DurationProgression, rf RepeatFunc, retryCount uint64) (finished bool) {
+	rp := New(progression)
+
+	return rp.Repeat(rf, retryCount)
+}
+
+func RepeatContext(ctx context.Context, progresstion DurationProgression, rfctx RepeatFuncContext, retryCount uint64) (finished bool) {
+	rp := New(progresstion)
+
+	return rp.RepeatContext(ctx, rfctx, retryCount)
 }
 
 type Repeater struct {
@@ -26,8 +43,8 @@ func New(progression DurationProgression) *Repeater {
 	return &Repeater{progression: progression}
 }
 
-func (r *Repeater) Repeat(f func() bool, retryCount uint64) (finished bool) {
-	finished = f()
+func (r *Repeater) Repeat(rf RepeatFunc, retryCount uint64) (finished bool) {
+	finished = rf()
 	if finished {
 		return true
 	}
@@ -35,7 +52,7 @@ func (r *Repeater) Repeat(f func() bool, retryCount uint64) (finished bool) {
 	for attempt := range retryCount {
 		sleepTime := r.progression.Duration(attempt)
 		if sleepTime <= 0 {
-			finished = f()
+			finished = rf()
 			if finished {
 				return true
 			}
@@ -45,7 +62,7 @@ func (r *Repeater) Repeat(f func() bool, retryCount uint64) (finished bool) {
 
 		<-time.After(sleepTime)
 
-		finished = f()
+		finished = rf()
 		if finished {
 			return true
 		}
@@ -54,8 +71,8 @@ func (r *Repeater) Repeat(f func() bool, retryCount uint64) (finished bool) {
 	return false
 }
 
-func (r *Repeater) RepeatContext(ctx context.Context, f func(ctx context.Context) bool, retryCount uint64) (finished bool) {
-	finished = f(ctx)
+func (r *Repeater) RepeatContext(ctx context.Context, rfctx RepeatFuncContext, retryCount uint64) (finished bool) {
+	finished = rfctx(ctx)
 	if finished {
 		return true
 	}
@@ -63,7 +80,7 @@ func (r *Repeater) RepeatContext(ctx context.Context, f func(ctx context.Context
 	for attempt := range retryCount {
 		sleepTime := r.progression.Duration(attempt)
 		if sleepTime <= 0 {
-			finished = f(ctx)
+			finished = rfctx(ctx)
 			if finished {
 				return true
 			}
@@ -79,7 +96,7 @@ func (r *Repeater) RepeatContext(ctx context.Context, f func(ctx context.Context
 
 			return false
 		case <-timer.C:
-			finished = f(ctx)
+			finished = rfctx(ctx)
 			if finished {
 				return true
 			}

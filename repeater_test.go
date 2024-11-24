@@ -7,7 +7,6 @@ import (
 
 	"github.com/amidgo/repeater"
 	"github.com/amidgo/tester"
-	"github.com/stretchr/testify/require"
 )
 
 type RepeatTest struct {
@@ -26,12 +25,44 @@ func (r *RepeatTest) Name() string {
 func (r *RepeatTest) Test(t *testing.T) {
 	t.Parallel()
 
+	t.Run("method", r.runMethodTest)
+	t.Run("global func", r.runGlobalFuncTest)
+}
+
+func (r *RepeatTest) runMethodTest(t *testing.T) {
+	t.Parallel()
+
+	repeatOperations := r.RepeatOperations.Copy()
+
 	now := time.Now()
 
-	repeater := repeater.New(r.Progression)
+	rp := repeater.New(r.Progression)
 
-	finished := repeater.Repeat(r.RepeatOperations.Execute(), r.RepeatCount)
-	require.Equal(t, r.ExpectedFinished, finished)
+	finished := rp.Repeat(repeatOperations.Execute(), r.RepeatCount)
+	if r.ExpectedFinished != finished {
+		t.Fatalf("wrong success, expect %t, actual %t", r.ExpectedFinished, finished)
+	}
+
+	finishTime := time.Now()
+
+	diff := finishTime.Sub(now) - r.ExpectedRepeatDuration
+
+	if diff.Abs() > time.Millisecond*10 {
+		t.Fatalf("too big difference between actual and expected repeat time: %s", diff)
+	}
+}
+
+func (r *RepeatTest) runGlobalFuncTest(t *testing.T) {
+	t.Parallel()
+
+	repeatOperations := r.RepeatOperations.Copy()
+
+	now := time.Now()
+
+	finished := repeater.Repeat(r.Progression, repeatOperations.Execute(), r.RepeatCount)
+	if r.ExpectedFinished != finished {
+		t.Fatalf("wrong success, expect %t, actual %t", r.ExpectedFinished, finished)
+	}
 
 	finishTime := time.Now()
 
@@ -137,7 +168,7 @@ type RepeatContextTest struct {
 	RepeatCount            uint64
 	ContextTimeout         time.Duration
 	RepeatOperations       RepeatOperations
-	ExpectedSuccess        bool
+	ExpectedFinished       bool
 	ExpectedRepeatDuration time.Duration
 }
 
@@ -148,15 +179,50 @@ func (r *RepeatContextTest) Name() string {
 func (r *RepeatContextTest) Test(t *testing.T) {
 	t.Parallel()
 
+	t.Run("method", r.runMethodTest)
+	t.Run("global func", r.runGlobalFuncTest)
+}
+
+func (r *RepeatContextTest) runMethodTest(t *testing.T) {
+	t.Parallel()
+
+	repeatOperations := r.RepeatOperations.Copy()
+
 	now := time.Now()
 
 	ctx, cancel := context.WithDeadline(context.Background(), now.Add(r.ContextTimeout))
 	defer cancel()
 
-	repeater := repeater.New(r.Progression)
+	rp := repeater.New(r.Progression)
 
-	success := repeater.RepeatContext(ctx, r.RepeatOperations.ExecuteContext(), r.RepeatCount)
-	require.Equal(t, r.ExpectedSuccess, success)
+	finished := rp.RepeatContext(ctx, repeatOperations.ExecuteContext(), r.RepeatCount)
+	if r.ExpectedFinished != finished {
+		t.Fatalf("wrong success, expect %t, actual %t", r.ExpectedFinished, finished)
+	}
+
+	finishTime := time.Now()
+
+	diff := finishTime.Sub(now) - r.ExpectedRepeatDuration
+
+	if diff.Abs() > time.Millisecond*10 {
+		t.Fatalf("too big difference between actual and expected repeat time: %s", diff)
+	}
+}
+
+func (r *RepeatContextTest) runGlobalFuncTest(t *testing.T) {
+	t.Parallel()
+
+	repeatOperations := r.RepeatOperations.Copy()
+
+	now := time.Now()
+
+	ctx, cancel := context.WithDeadline(context.Background(), now.Add(r.ContextTimeout))
+	defer cancel()
+
+	finished := repeater.RepeatContext(ctx, r.Progression, repeatOperations.ExecuteContext(), r.RepeatCount)
+	if r.ExpectedFinished != finished {
+		t.Fatalf("wrong success, expect %t, actual %t", r.ExpectedFinished, finished)
+	}
 
 	finishTime := time.Now()
 
@@ -193,7 +259,7 @@ func Test_RepeatContext(t *testing.T) {
 				},
 			),
 			ExpectedRepeatDuration: time.Second * 4,
-			ExpectedSuccess:        false,
+			ExpectedFinished:       false,
 		},
 		&RepeatContextTest{
 			CaseName:       "basic repeat, context canceled after 1.75 seconds during execute",
@@ -217,7 +283,7 @@ func Test_RepeatContext(t *testing.T) {
 				},
 			),
 			ExpectedRepeatDuration: time.Millisecond * 1750,
-			ExpectedSuccess:        false,
+			ExpectedFinished:       false,
 		},
 		&RepeatContextTest{
 			CaseName:       "basic repeat, context canceled after 2.5 seconds during pause",
@@ -241,7 +307,7 @@ func Test_RepeatContext(t *testing.T) {
 				},
 			),
 			ExpectedRepeatDuration: time.Millisecond * 2500,
-			ExpectedSuccess:        false,
+			ExpectedFinished:       false,
 		},
 		&RepeatContextTest{
 			CaseName:       "success repeat after first call",
@@ -265,13 +331,21 @@ func Test_RepeatContext(t *testing.T) {
 				},
 			),
 			ExpectedRepeatDuration: time.Second * 2,
-			ExpectedSuccess:        true,
+			ExpectedFinished:       true,
 		},
 	)
 }
 
 type RepeatOperations struct {
 	ops []RepeatOperation
+}
+
+func (r RepeatOperations) Copy() RepeatOperations {
+	ops := make([]RepeatOperation, len(r.ops))
+
+	copy(ops, r.ops)
+
+	return RepeatOperations{ops: ops}
 }
 
 func NewRepeatOperaions(ops ...RepeatOperation) RepeatOperations {
