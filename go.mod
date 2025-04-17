@@ -1,4 +1,4 @@
-module github.com/amidgo/repeater
+module github.com/amidgo/retry
 
 go 1.22
 

@@ -1,19 +1,16 @@
-package httprepeater
+package http
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
 
-	"github.com/amidgo/repeater"
+	"github.com/amidgo/retry"
 )
-
-func Do(rp *repeater.Repeater, client *http.Client, req *http.Request, retryCount uint64) (*http.Response, error) {
-	httpRp := New(rp)
-
-	return httpRp.Do(client, req, retryCount)
-}
 
 var (
 	// A regular expression to match the error returned by net/http when the
@@ -37,67 +34,99 @@ var (
 	notTrustedErrorRe = regexp.MustCompile(`certificate is not trusted`)
 )
 
-type Repeater struct {
-	repeater *repeater.Repeater
-}
+type Option func(c *Client)
 
-func New(rp *repeater.Repeater) *Repeater {
-	return &Repeater{
-		repeater: rp,
+func WithResultMapping(rf func(resp *http.Response, err error) retry.Result) Option {
+	return func(c *Client) {
+		c.resultMapping = rf
 	}
 }
 
-func (r *Repeater) Do(client *http.Client, req *http.Request, retryCount uint64) (resp *http.Response, err error) {
-	_ = r.repeater.RepeatContext(
-		req.Context(),
-		func(ctx context.Context) (finished bool) {
-			resp, err = client.Do(req)
-
-			return shouldFinishRetry(resp, err)
-		},
-		retryCount,
-	)
-
-	return resp, err
+type Client struct {
+	policy        retry.Policy
+	client        *http.Client
+	resultMapping func(resp *http.Response, err error) retry.Result
 }
 
-func shouldFinishRetry(resp *http.Response, err error) bool {
+func NewClient(policy retry.Policy, client *http.Client, opts ...Option) *Client {
+	cl := &Client{
+		policy: policy,
+		client: client,
+	}
+
+	for _, op := range opts {
+		op(cl)
+	}
+
+	return cl
+}
+
+func (c *Client) Do(req *http.Request) (resp *http.Response, err error) {
+	rf := retryResult
+	if c.resultMapping != nil {
+		rf = c.resultMapping
+	}
+
+	result := c.policy.RetryContext(
+		req.Context(),
+		func(ctx context.Context) retry.Result {
+			resp, err = c.client.Do(req)
+
+			return rf(resp, err)
+		},
+	)
+
+	switch result.Code() {
+	case retry.CodeFinished:
+		return resp, nil
+	case retry.CodeAborted:
+		return nil, result.Err()
+	case retry.CodeRetryCountExceeded:
+		return nil, errors.Join(retry.ErrRetryCountExceeded, err)
+	default:
+		message := fmt.Sprintf("invalid result code received: %s", result.Code())
+
+		panic(message)
+	}
+}
+
+func retryResult(resp *http.Response, err error) retry.Result {
 	if err != nil {
 		if v, ok := err.(*url.Error); ok {
 			// Don't retry if the error was due to too many redirects.
 			if redirectsErrorRe.MatchString(v.Error()) {
-				return true
+				return retry.Abort(err)
 			}
 
 			// Don't retry if the error was due to an invalid protocol scheme.
 			if schemeErrorRe.MatchString(v.Error()) {
-				return true
+				return retry.Abort(err)
 			}
 
 			// Don't retry if the error was due to an invalid header.
 			if invalidHeaderErrorRe.MatchString(v.Error()) {
-				return true
+				return retry.Abort(err)
 			}
 
 			// Don't retry if the error was due to TLS cert verification failure.
 			if notTrustedErrorRe.MatchString(v.Error()) {
-				return true
+				return retry.Abort(err)
 			}
 
 			if isCertError(v.Err) {
-				return true
+				return retry.Abort(err)
 			}
 		}
 
 		// The error is likely recoverable so retry.
-		return false
+		return retry.Continue()
 	}
 
 	// 429 Too Many Requests is recoverable. Sometimes the server puts
 	// a Retry-After response header to indicate when the server is
 	// available to start processing request from client.
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return false
+		return retry.Continue()
 	}
 
 	// Check the response code. We retry on 500-range responses to allow
@@ -105,8 +134,13 @@ func shouldFinishRetry(resp *http.Response, err error) bool {
 	// errors and may relate to outages on the server side. This will catch
 	// invalid response codes as well, like 0 and 999.
 	if resp.StatusCode == 0 || (resp.StatusCode >= 500 && resp.StatusCode != http.StatusNotImplemented) {
-		return false
+		return retry.Continue()
 	}
 
-	return true
+	return retry.Finish()
+}
+
+func isCertError(err error) bool {
+	_, ok := err.(*tls.CertificateVerificationError)
+	return ok
 }
