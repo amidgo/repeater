@@ -11,17 +11,13 @@ import (
 )
 
 type RetryTest struct {
-	CaseName               string
+	Name                   string
 	Progression            retry.DurationProgression
 	RetryCount             uint64
 	RepeatOperations       RetryOperations
 	ExpectedCode           retry.Code
 	ExpectedErr            error
 	ExpectedRepeatDuration time.Duration
-}
-
-func (r *RetryTest) Name() string {
-	return r.CaseName
 }
 
 func (r *RetryTest) Test(t *testing.T) {
@@ -83,12 +79,18 @@ func (r *RetryTest) runGlobalFuncTest(t *testing.T) {
 	}
 }
 
-func Test_Repeat(t *testing.T) {
+func runRetryTests(t *testing.T, tests ...*RetryTest) {
+	for _, tst := range tests {
+		t.Run(tst.Name, tst.Test)
+	}
+}
+
+func Test_Retry(t *testing.T) {
 	t.Parallel()
 
-	tester.RunNamedTesters(t,
+	runRetryTests(t,
 		&RetryTest{
-			CaseName:    "basic repeat",
+			Name:        "basic repeat",
 			Progression: retry.ConstantProgression(time.Second),
 			RetryCount:  2,
 			RepeatOperations: NewRetryOperations(
@@ -112,7 +114,7 @@ func Test_Repeat(t *testing.T) {
 			ExpectedErr:            retry.ErrRetryCountExceeded,
 		},
 		&RetryTest{
-			CaseName:    "zero delay repeat",
+			Name:        "zero delay repeat",
 			Progression: retry.ConstantProgression(0),
 			RetryCount:  2,
 			RepeatOperations: NewRetryOperations(
@@ -136,7 +138,7 @@ func Test_Repeat(t *testing.T) {
 			ExpectedErr:            retry.ErrRetryCountExceeded,
 		},
 		&RetryTest{
-			CaseName:    "success repeat after first call",
+			Name:        "success repeat after first call",
 			Progression: retry.ConstantProgression(time.Second),
 			RetryCount:  2,
 			RepeatOperations: NewRetryOperations(
@@ -160,7 +162,31 @@ func Test_Repeat(t *testing.T) {
 			ExpectedErr:            nil,
 		},
 		&RetryTest{
-			CaseName:    "zero repeat count",
+			Name:        "success repeat after first call, retry after",
+			Progression: retry.ConstantProgression(time.Second * 2),
+			RetryCount:  2,
+			RepeatOperations: NewRetryOperations(
+				RetryOperation{
+					Duration: time.Millisecond * 500,
+					Result:   retry.RetryAfter(time.Second),
+				},
+				// 1 second pause
+				RetryOperation{
+					Duration: time.Millisecond * 500,
+					Result:   retry.Finish(),
+				},
+				// 1 second pause
+				RetryOperation{
+					Duration: time.Millisecond * 1000,
+					Result:   retry.Continue(),
+				},
+			),
+			ExpectedRepeatDuration: time.Second * 2,
+			ExpectedCode:           retry.CodeFinished,
+			ExpectedErr:            nil,
+		},
+		&RetryTest{
+			Name:        "zero repeat count",
 			Progression: retry.ConstantProgression(time.Second),
 			RetryCount:  0,
 			RepeatOperations: NewRetryOperations(
@@ -174,7 +200,7 @@ func Test_Repeat(t *testing.T) {
 			ExpectedErr:            retry.ErrRetryCountExceeded,
 		},
 		&RetryTest{
-			CaseName:    "aborted with error",
+			Name:        "aborted with error",
 			Progression: retry.ConstantProgression(time.Second),
 			RetryCount:  1,
 			RepeatOperations: NewRetryOperations(
@@ -327,6 +353,32 @@ func Test_RepeatContext(t *testing.T) {
 			ExpectedErr:            io.ErrUnexpectedEOF,
 		},
 		&RepeatContextTest{
+			CaseName:       "basic repeat, context canceled after 1.75 seconds during execute, retry after",
+			Progression:    retry.ConstantProgression(0),
+			RetryCount:     2,
+			ContextTimeout: time.Millisecond * 1750,
+			ContextCause:   io.ErrUnexpectedEOF,
+			RetryOperations: NewRetryOperations(
+				RetryOperation{
+					Duration: time.Millisecond * 500,
+					Result:   retry.RetryAfter(time.Second),
+				},
+				// 1 second pause
+				RetryOperation{
+					Duration: time.Millisecond * 500,
+					Result:   retry.Continue(),
+				},
+				// 1 second pause
+				RetryOperation{
+					Duration: time.Millisecond * 1000,
+					Result:   retry.Continue(),
+				},
+			),
+			ExpectedRepeatDuration: time.Millisecond * 1750,
+			ExpectedCode:           retry.CodeAborted,
+			ExpectedErr:            io.ErrUnexpectedEOF,
+		},
+		&RepeatContextTest{
 			CaseName:       "basic repeat, context canceled after 2.5 seconds during pause",
 			Progression:    retry.ConstantProgression(time.Second),
 			RetryCount:     2,
@@ -353,13 +405,13 @@ func Test_RepeatContext(t *testing.T) {
 		},
 		&RepeatContextTest{
 			CaseName:       "success repeat after first call",
-			Progression:    retry.ConstantProgression(time.Second),
+			Progression:    retry.ConstantProgression(time.Second * 5),
 			RetryCount:     2,
 			ContextTimeout: time.Second * 3,
 			RetryOperations: NewRetryOperations(
 				RetryOperation{
 					Duration: time.Millisecond * 500,
-					Result:   retry.Continue(),
+					Result:   retry.RetryAfter(time.Second),
 				},
 				// 1 second pause
 				RetryOperation{

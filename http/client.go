@@ -36,16 +36,16 @@ var (
 
 type Option func(c *Client)
 
-func WithResultMapping(rf func(resp *http.Response, err error) retry.Result) Option {
+func WithResponseHandler(rf func(resp *http.Response, err error) retry.Result) Option {
 	return func(c *Client) {
-		c.resultMapping = rf
+		c.responseHandler = rf
 	}
 }
 
 type Client struct {
-	policy        retry.Policy
-	client        *http.Client
-	resultMapping func(resp *http.Response, err error) retry.Result
+	policy          retry.Policy
+	client          *http.Client
+	responseHandler func(resp *http.Response, err error) retry.Result
 }
 
 func NewClient(policy retry.Policy, client *http.Client, opts ...Option) *Client {
@@ -63,8 +63,8 @@ func NewClient(policy retry.Policy, client *http.Client, opts ...Option) *Client
 
 func (c *Client) Do(req *http.Request) (resp *http.Response, err error) {
 	rf := retryResult
-	if c.resultMapping != nil {
-		rf = c.resultMapping
+	if c.responseHandler != nil {
+		rf = c.responseHandler
 	}
 
 	result := c.policy.RetryContext(
