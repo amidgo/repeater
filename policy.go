@@ -133,7 +133,7 @@ func (r Policy) Retry(rf Func) (result Result) {
 
 	for attempt := range r.retryCount {
 		sleepTime := r.progression.Duration(attempt)
-		if result.retryAfter != 0 {
+		if result.retryAfter > 0 {
 			sleepTime = result.retryAfter
 		}
 
@@ -165,7 +165,7 @@ func (r Policy) RetryContext(ctx context.Context, rfctx FuncContext) (result Res
 
 	for attempt := range r.retryCount {
 		sleepTime := r.progression.Duration(attempt)
-		if result.retryAfter != 0 {
+		if result.retryAfter > 0 {
 			sleepTime = result.retryAfter
 		}
 
