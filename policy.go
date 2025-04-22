@@ -15,10 +15,6 @@ type Result struct {
 	err        error
 }
 
-func (r Result) RetryAfter() time.Duration {
-	return r.retryAfter
-}
-
 func (r Result) Code() Code {
 	return r.code
 }
