@@ -3,8 +3,6 @@ package http
 import (
 	"context"
 	"crypto/tls"
-	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -75,19 +73,11 @@ func (c *Client) Do(req *http.Request) (resp *http.Response, err error) {
 			return rf(resp, err)
 		},
 	)
-
-	switch result.Code() {
-	case retry.CodeFinished:
-		return resp, nil
-	case retry.CodeAborted:
+	if result.Err() != nil {
 		return nil, result.Err()
-	case retry.CodeRetryCountExceeded:
-		return nil, errors.Join(retry.ErrRetryCountExceeded, err)
-	default:
-		message := fmt.Sprintf("invalid result code received: %s", result.Code())
-
-		panic(message)
 	}
+
+	return resp, nil
 }
 
 func retryResult(resp *http.Response, err error) retry.Result {
@@ -119,7 +109,7 @@ func retryResult(resp *http.Response, err error) retry.Result {
 		}
 
 		// The error is likely recoverable so retry.
-		return retry.Continue()
+		return retry.Recover(err)
 	}
 
 	// 429 Too Many Requests is recoverable. Sometimes the server puts

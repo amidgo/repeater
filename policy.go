@@ -3,20 +3,15 @@ package retry
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 )
 
 var ErrRetryCountExceeded = errors.New("retry count exceeded")
 
 type Result struct {
-	code       Code
+	code       code
 	retryAfter time.Duration
 	err        error
-}
-
-func (r Result) Code() Code {
-	return r.code
 }
 
 func (r Result) Err() error {
@@ -24,63 +19,52 @@ func (r Result) Err() error {
 }
 
 func Continue() Result {
+	return Result{}
+}
+
+func Recover(recoverErr error) Result {
 	return Result{
-		code: codeContinue,
+		err: recoverErr,
 	}
 }
 
 func Abort(err error) Result {
 	return Result{
-		code: CodeAborted,
+		code: codeFinished,
 		err:  err,
 	}
 }
 
 func RetryAfter(sleepDuration time.Duration) Result {
 	return Result{
-		code:       codeContinue,
 		retryAfter: sleepDuration,
 	}
 }
 
 func Finish() Result {
 	return Result{
-		code: CodeFinished,
+		code: codeFinished,
 	}
 }
 
-func retryCountExceeded() Result {
+func retryCountExceeded(lastResultErr error) Result {
+	err := ErrRetryCountExceeded
+	if lastResultErr != nil {
+		err = errors.Join(err, lastResultErr)
+	}
+
 	return Result{
-		code: CodeRetryCountExceeded,
-		err:  ErrRetryCountExceeded,
+		code: codeFinished,
+		err:  err,
 	}
 }
 
-type Code uint8
+type code uint8
 
 const (
-	// continue is internal code, is a default code
-	codeContinue Code = iota
-
-	CodeAborted
-	CodeRetryCountExceeded
-	CodeFinished
+	codeContinue code = iota
+	codeFinished
 )
-
-func (c Code) String() string {
-	switch c {
-	case codeContinue:
-		return "Continue"
-	case CodeAborted:
-		return "Aborted"
-	case CodeRetryCountExceeded:
-		return "RetryCountExceeded"
-	case CodeFinished:
-		return "Finished"
-	default:
-		return fmt.Sprintf("UNKNOWN<%d>", c)
-	}
-}
 
 type (
 	DurationProgression interface {
@@ -123,19 +107,19 @@ func New(progression DurationProgression, retryCount uint64) Policy {
 
 func (r Policy) Retry(rf Func) (result Result) {
 	result = rf()
-	if result.Code() != codeContinue {
+	if result.code != codeContinue {
 		return result
 	}
 
 	for attempt := range r.retryCount {
 		sleepTime := r.progression.Duration(attempt)
-		if result.retryAfter > 0 {
+		if result.retryAfter != 0 {
 			sleepTime = result.retryAfter
 		}
 
 		if sleepTime <= 0 {
 			result = rf()
-			if result.Code() != codeContinue {
+			if result.code != codeContinue {
 				return result
 			}
 
@@ -145,29 +129,30 @@ func (r Policy) Retry(rf Func) (result Result) {
 		<-time.After(sleepTime)
 
 		result = rf()
-		if result.Code() != codeContinue {
+		if result.code != codeContinue {
 			return result
 		}
 	}
 
-	return retryCountExceeded()
+	return retryCountExceeded(result.err)
 }
 
 func (r Policy) RetryContext(ctx context.Context, rfctx FuncContext) (result Result) {
 	result = rfctx(ctx)
-	if result.Code() != codeContinue {
+	if result.code != codeContinue {
 		return result
 	}
 
 	for attempt := range r.retryCount {
 		sleepTime := r.progression.Duration(attempt)
-		if result.retryAfter > 0 {
+
+		if result.retryAfter != 0 {
 			sleepTime = result.retryAfter
 		}
 
 		if sleepTime <= 0 {
 			result = rfctx(ctx)
-			if result.Code() != codeContinue {
+			if result.code != codeContinue {
 				return result
 			}
 
@@ -180,16 +165,21 @@ func (r Policy) RetryContext(ctx context.Context, rfctx FuncContext) (result Res
 		case <-ctx.Done():
 			timer.Stop()
 
-			return Abort(context.Cause(ctx))
+			abortErr := context.Cause(ctx)
+			if result.err != nil {
+				abortErr = errors.Join(abortErr, result.err)
+			}
+
+			return Abort(abortErr)
 		case <-timer.C:
 			result = rfctx(ctx)
-			if result.Code() != codeContinue {
+			if result.code != codeContinue {
 				return result
 			}
 		}
 	}
 
-	return retryCountExceeded()
+	return retryCountExceeded(result.err)
 }
 
 type arifmeticProgression struct {
