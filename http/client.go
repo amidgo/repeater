@@ -60,7 +60,7 @@ func NewClient(policy retry.Policy, client *http.Client, opts ...Option) *Client
 }
 
 func (c *Client) Do(req *http.Request) (resp *http.Response, err error) {
-	rf := retryResult
+	rf := DefaultResponseHandle
 	if c.responseHandler != nil {
 		rf = c.responseHandler
 	}
@@ -80,7 +80,7 @@ func (c *Client) Do(req *http.Request) (resp *http.Response, err error) {
 	return resp, nil
 }
 
-func retryResult(resp *http.Response, err error) retry.Result {
+func DefaultResponseHandle(resp *http.Response, err error) retry.Result {
 	if err != nil {
 		if v, ok := err.(*url.Error); ok {
 			// Don't retry if the error was due to too many redirects.

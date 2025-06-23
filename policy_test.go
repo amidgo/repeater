@@ -66,17 +66,11 @@ func (r *RetryTest) runGlobalFuncTest(t *testing.T) {
 	}
 }
 
-func runRetryTests(t *testing.T, tests ...*RetryTest) {
-	for _, tst := range tests {
-		t.Run(tst.Name, tst.Test)
-	}
-}
-
 func Test_Retry(t *testing.T) {
 	t.Parallel()
 
-	runRetryTests(t,
-		&RetryTest{
+	tests := []*RetryTest{
+		{
 			Name:        "basic repeat",
 			Progression: retry.ConstantProgression(time.Second),
 			RetryCount:  2,
@@ -99,7 +93,7 @@ func Test_Retry(t *testing.T) {
 			ExpectedRetryDuration: time.Second * 4,
 			ExpectedErr:           retry.ErrRetryCountExceeded,
 		},
-		&RetryTest{
+		{
 			Name:        "zero delay repeat",
 			Progression: retry.ConstantProgression(0),
 			RetryCount:  2,
@@ -122,7 +116,7 @@ func Test_Retry(t *testing.T) {
 			ExpectedRetryDuration: time.Second * 2,
 			ExpectedErr:           retry.ErrRetryCountExceeded,
 		},
-		&RetryTest{
+		{
 			Name:        "success repeat after first call",
 			Progression: retry.ConstantProgression(time.Second),
 			RetryCount:  2,
@@ -145,7 +139,7 @@ func Test_Retry(t *testing.T) {
 			ExpectedRetryDuration: time.Second * 2,
 			ExpectedErr:           nil,
 		},
-		&RetryTest{
+		{
 			Name:        "success repeat after first call, retry after",
 			Progression: retry.ConstantProgression(time.Second * 2),
 			RetryCount:  2,
@@ -173,7 +167,7 @@ func Test_Retry(t *testing.T) {
 			ExpectedRetryDuration: time.Second * 2,
 			ExpectedErr:           nil,
 		},
-		&RetryTest{
+		{
 			Name:        "zero repeat count",
 			Progression: retry.ConstantProgression(time.Second),
 			RetryCount:  0,
@@ -186,7 +180,7 @@ func Test_Retry(t *testing.T) {
 			ExpectedRetryDuration: time.Millisecond * 500,
 			ExpectedErr:           retry.ErrRetryCountExceeded,
 		},
-		&RetryTest{
+		{
 			Name:        "aborted with error",
 			Progression: retry.ConstantProgression(time.Second),
 			RetryCount:  1,
@@ -199,7 +193,7 @@ func Test_Retry(t *testing.T) {
 			ExpectedRetryDuration: time.Millisecond * 500,
 			ExpectedErr:           io.ErrUnexpectedEOF,
 		},
-		&RetryTest{
+		{
 			Name:        "abort after recover",
 			Progression: retry.ConstantProgression(time.Second),
 			RetryCount:  2,
@@ -217,7 +211,7 @@ func Test_Retry(t *testing.T) {
 			ExpectedRetryDuration: time.Second * 2,
 			ExpectedErr:           io.ErrShortWrite,
 		},
-		&RetryTest{
+		{
 			Name:        "success after recover",
 			Progression: retry.ConstantProgression(time.Second),
 			RetryCount:  2,
@@ -234,18 +228,39 @@ func Test_Retry(t *testing.T) {
 			ExpectedRetryDuration: time.Millisecond * 1500,
 			ExpectedErr:           nil,
 		},
-	)
+		{
+			Name:        "retry count excedeed with Recover",
+			Progression: retry.ConstantProgression(time.Second),
+			RetryCount:  1,
+			RetryOperations: NewRetryOperations(
+				RetryOperation{
+					Duration: 0,
+					Result:   retry.Recover(io.ErrUnexpectedEOF),
+				},
+				RetryOperation{
+					Duration: 0,
+					Result:   retry.Recover(io.ErrUnexpectedEOF),
+				},
+			),
+			ExpectedRetryDuration: time.Second,
+			ExpectedErr:           errors.Join(retry.ErrRetryCountExceeded, io.ErrUnexpectedEOF),
+		},
+	}
+
+	for _, tst := range tests {
+		t.Run(tst.Name, tst.Test)
+	}
 }
 
 type RetryContextTest struct {
-	Name                   string
-	Progression            retry.DurationProgression
-	RetryCount             uint64
-	ContextTimeout         time.Duration
-	ContextCause           error
-	RetryOperations        RetryOperations
-	ExpectedErr            error
-	ExpectedRepeatDuration time.Duration
+	Name                  string
+	Progression           retry.DurationProgression
+	RetryCount            uint64
+	ContextTimeout        time.Duration
+	ContextCause          error
+	RetryOperations       RetryOperations
+	ExpectedErr           error
+	ExpectedRetryDuration time.Duration
 }
 
 func (r *RetryContextTest) Test(t *testing.T) {
@@ -272,7 +287,7 @@ func (r *RetryContextTest) runContextMethodTest(t *testing.T) {
 
 	finishTime := time.Now()
 
-	diff := finishTime.Sub(now) - r.ExpectedRepeatDuration
+	diff := finishTime.Sub(now) - r.ExpectedRetryDuration
 
 	if diff.Abs() > time.Millisecond*10 {
 		t.Fatalf("too big difference between actual and expected repeat time: %s", diff)
@@ -294,7 +309,7 @@ func (r *RetryContextTest) runContextFuncTest(t *testing.T) {
 
 	finishTime := time.Now()
 
-	diff := finishTime.Sub(now) - r.ExpectedRepeatDuration
+	diff := finishTime.Sub(now) - r.ExpectedRetryDuration
 
 	if diff.Abs() > time.Millisecond*10 {
 		t.Fatalf("too big difference between actual and expected repeat time: %s", diff)
@@ -335,17 +350,11 @@ func extractErrors(expectedErr error) []error {
 	}
 }
 
-func runRetryContextTests(t *testing.T, tests ...*RetryContextTest) {
-	for _, tst := range tests {
-		t.Run(tst.Name, tst.Test)
-	}
-}
-
 func Test_RetryContext(t *testing.T) {
 	t.Parallel()
 
-	runRetryContextTests(t,
-		&RetryContextTest{
+	tests := []*RetryContextTest{
+		{
 			Name:           "basic repeat",
 			Progression:    retry.ConstantProgression(time.Second),
 			RetryCount:     2,
@@ -366,10 +375,10 @@ func Test_RetryContext(t *testing.T) {
 					Result:   retry.Continue(),
 				},
 			),
-			ExpectedRepeatDuration: time.Second * 4,
-			ExpectedErr:            retry.ErrRetryCountExceeded,
+			ExpectedRetryDuration: time.Second * 4,
+			ExpectedErr:           retry.ErrRetryCountExceeded,
 		},
-		&RetryContextTest{
+		{
 			Name:           "basic repeat, context canceled after 1.75 seconds during execute",
 			Progression:    retry.ConstantProgression(time.Second),
 			RetryCount:     2,
@@ -391,10 +400,10 @@ func Test_RetryContext(t *testing.T) {
 					Result:   retry.Continue(),
 				},
 			),
-			ExpectedRepeatDuration: time.Millisecond * 1750,
-			ExpectedErr:            io.ErrUnexpectedEOF,
+			ExpectedRetryDuration: time.Millisecond * 1750,
+			ExpectedErr:           io.ErrUnexpectedEOF,
 		},
-		&RetryContextTest{
+		{
 			Name:           "basic repeat, context canceled after 1.75 seconds during execute, retry after",
 			Progression:    retry.ConstantProgression(0),
 			RetryCount:     2,
@@ -416,10 +425,10 @@ func Test_RetryContext(t *testing.T) {
 					Result:   retry.Continue(),
 				},
 			),
-			ExpectedRepeatDuration: time.Millisecond * 1750,
-			ExpectedErr:            io.ErrUnexpectedEOF,
+			ExpectedRetryDuration: time.Millisecond * 1750,
+			ExpectedErr:           io.ErrUnexpectedEOF,
 		},
-		&RetryContextTest{
+		{
 			Name:           "basic repeat, context canceled after 2.5 seconds during pause",
 			Progression:    retry.ConstantProgression(time.Second),
 			RetryCount:     2,
@@ -440,10 +449,10 @@ func Test_RetryContext(t *testing.T) {
 					Result:   retry.Continue(),
 				},
 			),
-			ExpectedRepeatDuration: time.Millisecond * 2500,
-			ExpectedErr:            context.DeadlineExceeded,
+			ExpectedRetryDuration: time.Millisecond * 2500,
+			ExpectedErr:           context.DeadlineExceeded,
 		},
-		&RetryContextTest{
+		{
 			Name:           "recover with context canceled after 2.5 seconds during pause",
 			Progression:    retry.ConstantProgression(time.Second),
 			RetryCount:     2,
@@ -464,10 +473,10 @@ func Test_RetryContext(t *testing.T) {
 					Result:   retry.Finish(),
 				},
 			),
-			ExpectedRepeatDuration: time.Millisecond * 2500,
-			ExpectedErr:            errors.Join(context.DeadlineExceeded, io.ErrUnexpectedEOF),
+			ExpectedRetryDuration: time.Millisecond * 2500,
+			ExpectedErr:           errors.Join(context.DeadlineExceeded, io.ErrUnexpectedEOF),
 		},
-		&RetryContextTest{
+		{
 			Name:           "continue after recover, context canceled after 2.5 seconds during pause",
 			Progression:    retry.ConstantProgression(time.Second),
 			RetryCount:     2,
@@ -488,10 +497,10 @@ func Test_RetryContext(t *testing.T) {
 					Result:   retry.Continue(),
 				},
 			),
-			ExpectedRepeatDuration: time.Millisecond * 2500,
-			ExpectedErr:            context.DeadlineExceeded,
+			ExpectedRetryDuration: time.Millisecond * 2500,
+			ExpectedErr:           context.DeadlineExceeded,
 		},
-		&RetryContextTest{
+		{
 			Name:           "abort after recover",
 			Progression:    retry.ConstantProgression(time.Second),
 			RetryCount:     2,
@@ -507,10 +516,10 @@ func Test_RetryContext(t *testing.T) {
 					Result:   retry.Abort(io.ErrShortWrite),
 				},
 			),
-			ExpectedRepeatDuration: time.Second * 2,
-			ExpectedErr:            io.ErrShortWrite,
+			ExpectedRetryDuration: time.Second * 2,
+			ExpectedErr:           io.ErrShortWrite,
 		},
-		&RetryContextTest{
+		{
 			Name:           "success after recover",
 			Progression:    retry.ConstantProgression(time.Second),
 			RetryCount:     2,
@@ -525,10 +534,10 @@ func Test_RetryContext(t *testing.T) {
 					Result:   retry.Finish(),
 				},
 			),
-			ExpectedRepeatDuration: time.Millisecond * 1500,
-			ExpectedErr:            nil,
+			ExpectedRetryDuration: time.Millisecond * 1500,
+			ExpectedErr:           nil,
 		},
-		&RetryContextTest{
+		{
 			Name:           "success after recover + retry.RetryAfter(0)",
 			Progression:    retry.ConstantProgression(time.Second),
 			RetryCount:     2,
@@ -548,10 +557,10 @@ func Test_RetryContext(t *testing.T) {
 					Result:   retry.Finish(),
 				},
 			),
-			ExpectedRepeatDuration: time.Second * 2,
-			ExpectedErr:            nil,
+			ExpectedRetryDuration: time.Second * 2,
+			ExpectedErr:           nil,
 		},
-		&RetryContextTest{
+		{
 			Name:           "success repeat after first call",
 			Progression:    retry.ConstantProgression(time.Second * 5),
 			RetryCount:     2,
@@ -572,10 +581,72 @@ func Test_RetryContext(t *testing.T) {
 					Result:   retry.Continue(),
 				},
 			),
-			ExpectedRepeatDuration: time.Second * 2,
-			ExpectedErr:            nil,
+			ExpectedRetryDuration: time.Second * 2,
+			ExpectedErr:           nil,
 		},
-	)
+		{
+			Name:           "retry count excedeed with Recover",
+			Progression:    retry.ConstantProgression(time.Second),
+			RetryCount:     1,
+			ContextTimeout: time.Second * 10,
+			RetryOperations: NewRetryOperations(
+				RetryOperation{
+					Duration: 0,
+					Result:   retry.Recover(io.ErrUnexpectedEOF),
+				},
+				RetryOperation{
+					Duration: 0,
+					Result:   retry.Recover(io.ErrUnexpectedEOF),
+				},
+			),
+			ExpectedRetryDuration: time.Second,
+			ExpectedErr:           errors.Join(retry.ErrRetryCountExceeded, io.ErrUnexpectedEOF),
+		},
+		{
+			Name:           "immediately finish",
+			Progression:    retry.ConstantProgression(time.Second),
+			RetryCount:     0,
+			ContextTimeout: time.Second * 10,
+			RetryOperations: NewRetryOperations(
+				RetryOperation{
+					Duration: time.Second,
+					Result:   retry.Finish(),
+				},
+			),
+			ExpectedRetryDuration: time.Second,
+			ExpectedErr:           nil,
+		},
+		{
+			Name:           "several retry after in a row",
+			Progression:    retry.ConstantProgression(time.Second),
+			RetryCount:     3,
+			ContextTimeout: time.Second * 10,
+			RetryOperations: NewRetryOperations(
+				RetryOperation{
+					Duration: 0,
+					Result:   retry.RetryAfter(-1),
+				},
+				RetryOperation{
+					Duration: 0,
+					Result:   retry.RetryAfter(-1),
+				},
+				RetryOperation{
+					Duration: 0,
+					Result:   retry.RetryAfter(-1),
+				},
+				RetryOperation{
+					Duration: 0,
+					Result:   retry.Finish(),
+				},
+			),
+			ExpectedRetryDuration: 0,
+			ExpectedErr:           nil,
+		},
+	}
+
+	for _, tst := range tests {
+		t.Run(tst.Name, tst.Test)
+	}
 }
 
 type RetryOperations struct {
