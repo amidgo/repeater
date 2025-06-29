@@ -3,6 +3,7 @@ package retry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -12,6 +13,22 @@ type Result struct {
 	code       code
 	retryAfter time.Duration
 	err        error
+}
+
+func (r Result) Eq(result Result) (bool, string) {
+	if r.code != result.code {
+		return false, fmt.Sprintf("compare 'code', original: %s, other: %s", r.code, result.code)
+	}
+
+	if r.retryAfter != result.retryAfter {
+		return false, fmt.Sprintf("compare 'retryAfter', original: %s, other: %s", r.retryAfter, result.retryAfter)
+	}
+
+	if r.err != result.err {
+		return false, fmt.Sprintf("compare 'err', original: %s, other: %s", r.err, result.err)
+	}
+
+	return true, ""
 }
 
 func (r Result) Err() error {
@@ -65,6 +82,17 @@ const (
 	codeContinue code = iota
 	codeFinished
 )
+
+func (c code) String() string {
+	switch c {
+	case codeContinue:
+		return "continue"
+	case codeFinished:
+		return "finished"
+	default:
+		panic("unexpected code value: " + fmt.Sprint(int(c)))
+	}
+}
 
 type (
 	DurationProgression interface {

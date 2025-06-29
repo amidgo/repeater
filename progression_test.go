@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/amidgo/retry"
-	"github.com/amidgo/tester"
 )
 
 type ProgressionTest struct {
@@ -27,8 +26,14 @@ func (s *ProgressionTest) Test(t *testing.T) {
 	}
 }
 
+func runProgressionTests(t *testing.T, tests ...*ProgressionTest) {
+	for _, tst := range tests {
+		t.Run(tst.Name(), tst.Test)
+	}
+}
+
 func Test_ConstantProgression(t *testing.T) {
-	tester.RunNamedTesters(t,
+	runProgressionTests(t,
 		&ProgressionTest{
 			Progression:      retry.ConstantProgression(time.Second),
 			Time:             132,
@@ -48,7 +53,7 @@ func Test_ConstantProgression(t *testing.T) {
 }
 
 func Test_ArifmeticProgression(t *testing.T) {
-	tester.RunNamedTesters(t,
+	runProgressionTests(t,
 		&ProgressionTest{
 			Progression:      retry.ArifmeticProgression(time.Second, time.Second*2),
 			Time:             1,
@@ -68,7 +73,7 @@ func Test_ArifmeticProgression(t *testing.T) {
 }
 
 func Test_FibanacciProgression(t *testing.T) {
-	tester.RunNamedTesters(t,
+	runProgressionTests(t,
 		&ProgressionTest{
 			Progression:      retry.FibonacciProgression(time.Second),
 			Time:             0,

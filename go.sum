@@ -1,4 +1,4 @@
-github.com/amidgo/httpmock v0.0.3 h1:p3hsQ5b5VJny03NfllhIzDJMl70nJDkSSPbTPw5AooA=
-github.com/amidgo/httpmock v0.0.3/go.mod h1:cDV17OcYdoIEQX4q8RLT3d4GjswmJRjX2XwWa7/tWV0=
-github.com/amidgo/tester v0.0.7 h1:7aEmYB/OMfQ56nnOaX7Fj1r/YNdkvVlDUiRqrGTk4Qg=
-github.com/amidgo/tester v0.0.7/go.mod h1:u0D7i1Y9Vp2KugELj1znrMXBxVJDgxBDR3Ymej/sbKk=
+github.com/amidgo/httpmock v0.0.5 h1:71feHy1xEuwa3BFtfxIKEZ0Y66ReTOz0qgkQmZnt3Yc=
+github.com/amidgo/httpmock v0.0.5/go.mod h1:cDV17OcYdoIEQX4q8RLT3d4GjswmJRjX2XwWa7/tWV0=
+golang.org/x/sync v0.15.0 h1:KWH3jNZsfyT6xfAfKiz6MRNmd46ByHDYaZ7KSkCtdW8=
+golang.org/x/sync v0.15.0/go.mod h1:1dzgHSNfp02xaA81J2MS99Qcpr2w7fw1gpm99rleRqA=

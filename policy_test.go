@@ -3,6 +3,7 @@ package retry_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"testing"
 	"time"
@@ -325,14 +326,14 @@ func assertResultError(t *testing.T, expectedErr, resultErr error) {
 	resultErrs := extractErrors(resultErr)
 
 	if len(expectedErrs) != len(resultErrs) {
-		t.Fatalf("wrong result err, expected %+v, actual %+v", expectedErr, resultErr)
+		t.Fatalf("wrong result err\n\nexpected:\n%+v\n\nactual:\n%+v", expectedErr, resultErr)
 
 		return
 	}
 
 	for i := range expectedErrs {
 		if expectedErrs[i] != resultErrs[i] {
-			t.Fatalf("wrong result err, check %d element of errs, expected %+v, actual %+v", i+1, expectedErrs[i], resultErrs[i])
+			t.Fatalf("wrong result err, check %d element of errs\n\nexpected:\n%+v\n\nactual:\n%+v", i+1, expectedErrs[i], resultErrs[i])
 
 			return
 		}
@@ -717,5 +718,75 @@ func (r RetryOperation) ExecuteContext() func(context.Context) retry.Result {
 		case <-ctx.Done():
 			return retry.Abort(context.Cause(ctx))
 		}
+	}
+}
+
+type resultEqTest struct {
+	Name            string
+	Original, Other retry.Result
+	ExpectedEqual   bool
+	ExpectedMessage string
+}
+
+func (r *resultEqTest) Test(t *testing.T) {
+	equal, message := r.Original.Eq(r.Other)
+
+	if equal != r.ExpectedEqual {
+		t.Fatalf("compare equal, expected: %t, actual: %t", r.ExpectedEqual, equal)
+	}
+
+	if message != r.ExpectedMessage {
+		t.Fatalf("compare message, message not equal\n\nexpected:\n%s\n\nactual:\n%s", r.ExpectedMessage, message)
+	}
+}
+
+func Test_Result_Eq(t *testing.T) {
+	tests := []*resultEqTest{
+		{
+			Name:            "code not equal",
+			Original:        retry.Continue(),
+			Other:           retry.Finish(),
+			ExpectedEqual:   false,
+			ExpectedMessage: "compare 'code', original: continue, other: finished",
+		},
+		{
+			Name:            "retryAfter not equal",
+			Original:        retry.RetryAfter(time.Second),
+			Other:           retry.RetryAfter(time.Second * 2),
+			ExpectedEqual:   false,
+			ExpectedMessage: "compare 'retryAfter', original: 1s, other: 2s",
+		},
+		{
+			Name:            "err not equal",
+			Original:        retry.Recover(io.ErrUnexpectedEOF),
+			Other:           retry.Recover(io.ErrNoProgress),
+			ExpectedEqual:   false,
+			ExpectedMessage: "compare 'err', original: unexpected EOF, other: multiple Read calls return no data or error",
+		},
+		{
+			Name:            "wrapped err not equal",
+			Original:        retry.Recover(io.ErrUnexpectedEOF),
+			Other:           retry.Recover(fmt.Errorf("wrapped: %w", io.ErrUnexpectedEOF)),
+			ExpectedEqual:   false,
+			ExpectedMessage: "compare 'err', original: unexpected EOF, other: wrapped: unexpected EOF",
+		},
+		{
+			Name:            "equal, retryAfter",
+			Original:        retry.RetryAfter(time.Second),
+			Other:           retry.RetryAfter(time.Second),
+			ExpectedEqual:   true,
+			ExpectedMessage: "",
+		},
+		{
+			Name:            "equal, err",
+			Original:        retry.Recover(io.ErrUnexpectedEOF),
+			Other:           retry.Recover(io.ErrUnexpectedEOF),
+			ExpectedEqual:   true,
+			ExpectedMessage: "",
+		},
+	}
+
+	for _, tst := range tests {
+		t.Run(tst.Name, tst.Test)
 	}
 }

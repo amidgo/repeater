@@ -1,4 +1,4 @@
-package http
+package retryhttp
 
 import (
 	"context"
@@ -19,58 +19,51 @@ var (
 	// A regular expression to match the error returned by net/http when the
 	// scheme specified in the URL is invalid. This error isn't typed
 	// specifically so we resort to matching on the error string.
+	missingProtocolScheme = regexp.MustCompile(`missing protocol scheme`)
+	// A regular expression to match the error returned by net/http when the
+	// scheme specified in the URL is invalid. This error isn't typed
+	// specifically so we resort to matching on the error string.
 	schemeErrorRe = regexp.MustCompile(`unsupported protocol scheme`)
 
 	// A regular expression to match the error returned by net/http when a
 	// request header or value is invalid. This error isn't typed
 	// specifically so we resort to matching on the error string.
 	invalidHeaderErrorRe = regexp.MustCompile(`invalid header`)
-
-	// A regular expression to match the error returned by net/http when the
-	// TLS certificate is not trusted. This error isn't typed
-	// specifically so we resort to matching on the error string.
-	notTrustedErrorRe = regexp.MustCompile(`certificate is not trusted`)
 )
 
-type Option func(c *Client)
+type Transport struct {
+	policy         retry.Policy
+	transport      http.RoundTripper
+	handleResponse func(ctx context.Context, resp *http.Response, err error) retry.Result
+}
 
-func WithResponseHandler(rf func(resp *http.Response, err error) retry.Result) Option {
-	return func(c *Client) {
-		c.responseHandler = rf
+var _ http.RoundTripper = (*Transport)(nil)
+
+func NewTransport(policy retry.Policy, transport http.RoundTripper, handleResponse func(context.Context, *http.Response, error) retry.Result) *Transport {
+	return &Transport{
+		policy:         policy,
+		transport:      transport,
+		handleResponse: handleResponse,
 	}
 }
 
-type Client struct {
-	policy          retry.Policy
-	client          *http.Client
-	responseHandler func(resp *http.Response, err error) retry.Result
-}
-
-func NewClient(policy retry.Policy, client *http.Client, opts ...Option) *Client {
-	cl := &Client{
-		policy: policy,
-		client: client,
+func (c *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
+	rf := DefaultHandleResponse
+	if c.handleResponse != nil {
+		rf = c.handleResponse
 	}
 
-	for _, op := range opts {
-		op(cl)
-	}
-
-	return cl
-}
-
-func (c *Client) Do(req *http.Request) (resp *http.Response, err error) {
-	rf := DefaultResponseHandle
-	if c.responseHandler != nil {
-		rf = c.responseHandler
-	}
+	var (
+		resp *http.Response
+		err  error
+	)
 
 	result := c.policy.RetryContext(
 		req.Context(),
 		func(ctx context.Context) retry.Result {
-			resp, err = c.client.Do(req)
+			resp, err = c.transport.RoundTrip(req)
 
-			return rf(resp, err)
+			return rf(ctx, resp, err)
 		},
 	)
 	if result.Err() != nil {
@@ -80,11 +73,15 @@ func (c *Client) Do(req *http.Request) (resp *http.Response, err error) {
 	return resp, nil
 }
 
-func DefaultResponseHandle(resp *http.Response, err error) retry.Result {
+func DefaultHandleResponse(_ context.Context, resp *http.Response, err error) retry.Result {
 	if err != nil {
 		if v, ok := err.(*url.Error); ok {
 			// Don't retry if the error was due to too many redirects.
 			if redirectsErrorRe.MatchString(v.Error()) {
+				return retry.Abort(err)
+			}
+
+			if missingProtocolScheme.MatchString(v.Error()) {
 				return retry.Abort(err)
 			}
 
@@ -95,11 +92,6 @@ func DefaultResponseHandle(resp *http.Response, err error) retry.Result {
 
 			// Don't retry if the error was due to an invalid header.
 			if invalidHeaderErrorRe.MatchString(v.Error()) {
-				return retry.Abort(err)
-			}
-
-			// Don't retry if the error was due to TLS cert verification failure.
-			if notTrustedErrorRe.MatchString(v.Error()) {
 				return retry.Abort(err)
 			}
 
