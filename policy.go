@@ -95,42 +95,30 @@ func (c code) String() string {
 }
 
 type (
-	DurationProgression interface {
-		// sleep duration by execute time
-		// zero attempt is initial timeout
-		// example:
-		// ArifmeticProgression
-		// initial: 1s delta: 0.5s
-		// ArifmeticProgression.Duration(0) = 1s
-		// ArifmeticProgression.Duration(1) = 1.5s
-		// ArifmeticProgression.Duration(2) = 2s
-		// ArifmeticProgression.Duration(3) = 2.5s
-		Duration(attempt uint64) time.Duration
-	}
-
+	Backoff     func(uint64) time.Duration
 	Func        func() Result
 	FuncContext func(ctx context.Context) Result
 )
 
-func Retry(progression DurationProgression, retryCount uint64, f Func) Result {
-	policy := New(progression, retryCount)
+func Retry(backoff Backoff, retryCount uint64, f Func) Result {
+	policy := New(backoff, retryCount)
 
 	return policy.Retry(f)
 }
 
-func RetryContext(ctx context.Context, progression DurationProgression, retryCount uint64, f FuncContext) Result {
-	policy := New(progression, retryCount)
+func RetryContext(ctx context.Context, backoff Backoff, retryCount uint64, f FuncContext) Result {
+	policy := New(backoff, retryCount)
 
 	return policy.RetryContext(ctx, f)
 }
 
 type Policy struct {
-	progression DurationProgression
-	retryCount  uint64
+	backoff    Backoff
+	retryCount uint64
 }
 
-func New(progression DurationProgression, retryCount uint64) Policy {
-	return Policy{progression: progression, retryCount: retryCount}
+func New(backoff Backoff, retryCount uint64) Policy {
+	return Policy{backoff: backoff, retryCount: retryCount}
 }
 
 func (r Policy) Retry(rf Func) (result Result) {
@@ -140,7 +128,7 @@ func (r Policy) Retry(rf Func) (result Result) {
 	}
 
 	for attempt := range r.retryCount {
-		sleepTime := r.progression.Duration(attempt)
+		sleepTime := r.backoff(attempt)
 		if result.retryAfter != 0 {
 			sleepTime = result.retryAfter
 		}
@@ -172,7 +160,7 @@ func (r Policy) RetryContext(ctx context.Context, rfctx FuncContext) (result Res
 	}
 
 	for attempt := range r.retryCount {
-		sleepTime := r.progression.Duration(attempt)
+		sleepTime := r.backoff(attempt)
 
 		if result.retryAfter != 0 {
 			sleepTime = result.retryAfter
@@ -210,29 +198,22 @@ func (r Policy) RetryContext(ctx context.Context, rfctx FuncContext) (result Res
 	return retryCountExceeded(result.err)
 }
 
-type arifmeticProgression struct {
-	initial time.Duration
-	delta   time.Duration
+func Plain(backoff time.Duration) Backoff {
+	return func(attempt uint64) time.Duration {
+		return backoff
+	}
 }
 
-func ArifmeticProgression(initial, delta time.Duration) arifmeticProgression {
-	return arifmeticProgression{initial: initial, delta: delta}
+func Arifmetic(initial, delta time.Duration) Backoff {
+	return func(attempt uint64) time.Duration {
+		return initial + (delta * time.Duration(attempt))
+	}
 }
 
-func (a arifmeticProgression) Duration(tm uint64) time.Duration {
-	return a.initial + (a.delta * time.Duration(tm))
-}
-
-type ConstantProgression time.Duration
-
-func (p ConstantProgression) Duration(uint64) time.Duration {
-	return time.Duration(p)
-}
-
-type FibonacciProgression time.Duration
-
-func (s FibonacciProgression) Duration(attempt uint64) time.Duration {
-	return time.Duration(s) * time.Duration(fibonacciIterative(attempt+1))
+func Fibonacci(base time.Duration) Backoff {
+	return func(attempt uint64) time.Duration {
+		return base * time.Duration(fibonacciIterative(attempt+1))
+	}
 }
 
 func fibonacciIterative(n uint64) uint64 {

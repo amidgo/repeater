@@ -205,7 +205,7 @@ func Test_Transport(t *testing.T) {
 		{
 			Name:    "many calls",
 			Request: req,
-			Policy:  retry.New(retry.ConstantProgression(0), 2),
+			Policy:  retry.New(retry.Plain(0), 2),
 			Calls: httpmock.SequenceCalls(
 				httpmock.Call{
 					Input:    input,
@@ -246,7 +246,7 @@ func Test_Transport(t *testing.T) {
 		{
 			Name:    "recover error after retry count exceeded",
 			Request: req,
-			Policy:  retry.New(retry.ConstantProgression(0), 1),
+			Policy:  retry.New(retry.Plain(0), 1),
 			Calls: httpmock.SequenceCalls(
 				httpmock.Call{
 					Input: input,

@@ -13,7 +13,7 @@ import (
 
 type RetryTest struct {
 	Name                  string
-	Progression           retry.DurationProgression
+	Backoff               retry.Backoff
 	RetryCount            uint64
 	RetryOperations       RetryOperations
 	ExpectedErr           error
@@ -34,7 +34,7 @@ func (r *RetryTest) runMethodTest(t *testing.T) {
 
 	now := time.Now()
 
-	rp := retry.New(r.Progression, r.RetryCount)
+	rp := retry.New(r.Backoff, r.RetryCount)
 
 	result := rp.Retry(repeatOperations.Execute())
 	assertResultError(t, r.ExpectedErr, result.Err())
@@ -55,7 +55,7 @@ func (r *RetryTest) runGlobalFuncTest(t *testing.T) {
 
 	now := time.Now()
 
-	result := retry.Retry(r.Progression, r.RetryCount, repeatOperations.Execute())
+	result := retry.Retry(r.Backoff, r.RetryCount, repeatOperations.Execute())
 	assertResultError(t, r.ExpectedErr, result.Err())
 
 	finishTime := time.Now()
@@ -72,9 +72,9 @@ func Test_Retry(t *testing.T) {
 
 	tests := []*RetryTest{
 		{
-			Name:        "basic repeat",
-			Progression: retry.ConstantProgression(time.Second),
-			RetryCount:  2,
+			Name:       "basic repeat",
+			Backoff:    retry.Plain(time.Second),
+			RetryCount: 2,
 			RetryOperations: NewRetryOperations(
 				RetryOperation{
 					Duration: time.Millisecond * 500,
@@ -95,9 +95,9 @@ func Test_Retry(t *testing.T) {
 			ExpectedErr:           retry.ErrRetryCountExceeded,
 		},
 		{
-			Name:        "zero delay repeat",
-			Progression: retry.ConstantProgression(0),
-			RetryCount:  2,
+			Name:       "zero delay repeat",
+			Backoff:    retry.Plain(0),
+			RetryCount: 2,
 			RetryOperations: NewRetryOperations(
 				RetryOperation{
 					Duration: time.Millisecond * 500,
@@ -118,9 +118,9 @@ func Test_Retry(t *testing.T) {
 			ExpectedErr:           retry.ErrRetryCountExceeded,
 		},
 		{
-			Name:        "success repeat after first call",
-			Progression: retry.ConstantProgression(time.Second),
-			RetryCount:  2,
+			Name:       "success repeat after first call",
+			Backoff:    retry.Plain(time.Second),
+			RetryCount: 2,
 			RetryOperations: NewRetryOperations(
 				RetryOperation{
 					Duration: time.Millisecond * 500,
@@ -141,9 +141,9 @@ func Test_Retry(t *testing.T) {
 			ExpectedErr:           nil,
 		},
 		{
-			Name:        "success repeat after first call, retry after",
-			Progression: retry.ConstantProgression(time.Second * 2),
-			RetryCount:  2,
+			Name:       "success repeat after first call, retry after",
+			Backoff:    retry.Plain(time.Second * 2),
+			RetryCount: 2,
 			RetryOperations: NewRetryOperations(
 				RetryOperation{
 					Duration: time.Millisecond * 500,
@@ -169,9 +169,9 @@ func Test_Retry(t *testing.T) {
 			ExpectedErr:           nil,
 		},
 		{
-			Name:        "zero repeat count",
-			Progression: retry.ConstantProgression(time.Second),
-			RetryCount:  0,
+			Name:       "zero repeat count",
+			Backoff:    retry.Plain(time.Second),
+			RetryCount: 0,
 			RetryOperations: NewRetryOperations(
 				RetryOperation{
 					Duration: time.Millisecond * 500,
@@ -182,9 +182,9 @@ func Test_Retry(t *testing.T) {
 			ExpectedErr:           retry.ErrRetryCountExceeded,
 		},
 		{
-			Name:        "aborted with error",
-			Progression: retry.ConstantProgression(time.Second),
-			RetryCount:  1,
+			Name:       "aborted with error",
+			Backoff:    retry.Plain(time.Second),
+			RetryCount: 1,
 			RetryOperations: NewRetryOperations(
 				RetryOperation{
 					Duration: time.Millisecond * 500,
@@ -195,9 +195,9 @@ func Test_Retry(t *testing.T) {
 			ExpectedErr:           io.ErrUnexpectedEOF,
 		},
 		{
-			Name:        "abort after recover",
-			Progression: retry.ConstantProgression(time.Second),
-			RetryCount:  2,
+			Name:       "abort after recover",
+			Backoff:    retry.Plain(time.Second),
+			RetryCount: 2,
 			RetryOperations: NewRetryOperations(
 				RetryOperation{
 					Duration: time.Millisecond * 500,
@@ -213,9 +213,9 @@ func Test_Retry(t *testing.T) {
 			ExpectedErr:           io.ErrShortWrite,
 		},
 		{
-			Name:        "success after recover",
-			Progression: retry.ConstantProgression(time.Second),
-			RetryCount:  2,
+			Name:       "success after recover",
+			Backoff:    retry.Plain(time.Second),
+			RetryCount: 2,
 			RetryOperations: NewRetryOperations(
 				RetryOperation{
 					Duration: time.Millisecond * 500,
@@ -230,9 +230,9 @@ func Test_Retry(t *testing.T) {
 			ExpectedErr:           nil,
 		},
 		{
-			Name:        "retry count excedeed with Recover",
-			Progression: retry.ConstantProgression(time.Second),
-			RetryCount:  1,
+			Name:       "retry count excedeed with Recover",
+			Backoff:    retry.Plain(time.Second),
+			RetryCount: 1,
 			RetryOperations: NewRetryOperations(
 				RetryOperation{
 					Duration: 0,
@@ -255,7 +255,7 @@ func Test_Retry(t *testing.T) {
 
 type RetryContextTest struct {
 	Name                  string
-	Progression           retry.DurationProgression
+	Backoff               retry.Backoff
 	RetryCount            uint64
 	ContextTimeout        time.Duration
 	ContextCause          error
@@ -281,7 +281,7 @@ func (r *RetryContextTest) runContextMethodTest(t *testing.T) {
 	ctx, cancel := context.WithDeadlineCause(context.Background(), now.Add(r.ContextTimeout), r.ContextCause)
 	defer cancel()
 
-	rp := retry.New(r.Progression, r.RetryCount)
+	rp := retry.New(r.Backoff, r.RetryCount)
 
 	result := rp.RetryContext(ctx, repeatOperations.ExecuteContext())
 	assertResultError(t, r.ExpectedErr, result.Err())
@@ -305,7 +305,7 @@ func (r *RetryContextTest) runContextFuncTest(t *testing.T) {
 	ctx, cancel := context.WithDeadlineCause(context.Background(), now.Add(r.ContextTimeout), r.ContextCause)
 	defer cancel()
 
-	result := retry.RetryContext(ctx, r.Progression, r.RetryCount, repeatOperations.ExecuteContext())
+	result := retry.RetryContext(ctx, r.Backoff, r.RetryCount, repeatOperations.ExecuteContext())
 	assertResultError(t, r.ExpectedErr, result.Err())
 
 	finishTime := time.Now()
@@ -357,7 +357,7 @@ func Test_RetryContext(t *testing.T) {
 	tests := []*RetryContextTest{
 		{
 			Name:           "basic repeat",
-			Progression:    retry.ConstantProgression(time.Second),
+			Backoff:        retry.Plain(time.Second),
 			RetryCount:     2,
 			ContextTimeout: time.Second * 5,
 			RetryOperations: NewRetryOperations(
@@ -381,7 +381,7 @@ func Test_RetryContext(t *testing.T) {
 		},
 		{
 			Name:           "basic repeat, context canceled after 1.75 seconds during execute",
-			Progression:    retry.ConstantProgression(time.Second),
+			Backoff:        retry.Plain(time.Second),
 			RetryCount:     2,
 			ContextTimeout: time.Millisecond * 1750,
 			ContextCause:   io.ErrUnexpectedEOF,
@@ -406,7 +406,7 @@ func Test_RetryContext(t *testing.T) {
 		},
 		{
 			Name:           "basic repeat, context canceled after 1.75 seconds during execute, retry after",
-			Progression:    retry.ConstantProgression(0),
+			Backoff:        retry.Plain(0),
 			RetryCount:     2,
 			ContextTimeout: time.Millisecond * 1750,
 			ContextCause:   io.ErrUnexpectedEOF,
@@ -431,7 +431,7 @@ func Test_RetryContext(t *testing.T) {
 		},
 		{
 			Name:           "basic repeat, context canceled after 2.5 seconds during pause",
-			Progression:    retry.ConstantProgression(time.Second),
+			Backoff:        retry.Plain(time.Second),
 			RetryCount:     2,
 			ContextTimeout: time.Millisecond * 2500,
 			RetryOperations: NewRetryOperations(
@@ -455,7 +455,7 @@ func Test_RetryContext(t *testing.T) {
 		},
 		{
 			Name:           "recover with context canceled after 2.5 seconds during pause",
-			Progression:    retry.ConstantProgression(time.Second),
+			Backoff:        retry.Plain(time.Second),
 			RetryCount:     2,
 			ContextTimeout: time.Millisecond * 2500,
 			RetryOperations: NewRetryOperations(
@@ -479,7 +479,7 @@ func Test_RetryContext(t *testing.T) {
 		},
 		{
 			Name:           "continue after recover, context canceled after 2.5 seconds during pause",
-			Progression:    retry.ConstantProgression(time.Second),
+			Backoff:        retry.Plain(time.Second),
 			RetryCount:     2,
 			ContextTimeout: time.Millisecond * 2500,
 			RetryOperations: NewRetryOperations(
@@ -503,7 +503,7 @@ func Test_RetryContext(t *testing.T) {
 		},
 		{
 			Name:           "abort after recover",
-			Progression:    retry.ConstantProgression(time.Second),
+			Backoff:        retry.Plain(time.Second),
 			RetryCount:     2,
 			ContextTimeout: time.Millisecond * 2500,
 			RetryOperations: NewRetryOperations(
@@ -522,7 +522,7 @@ func Test_RetryContext(t *testing.T) {
 		},
 		{
 			Name:           "success after recover",
-			Progression:    retry.ConstantProgression(time.Second),
+			Backoff:        retry.Plain(time.Second),
 			RetryCount:     2,
 			ContextTimeout: time.Millisecond * 2500,
 			RetryOperations: NewRetryOperations(
@@ -540,7 +540,7 @@ func Test_RetryContext(t *testing.T) {
 		},
 		{
 			Name:           "success after recover + retry.RetryAfter(0)",
-			Progression:    retry.ConstantProgression(time.Second),
+			Backoff:        retry.Plain(time.Second),
 			RetryCount:     2,
 			ContextTimeout: time.Millisecond * 2500,
 			RetryOperations: NewRetryOperations(
@@ -563,7 +563,7 @@ func Test_RetryContext(t *testing.T) {
 		},
 		{
 			Name:           "success repeat after first call",
-			Progression:    retry.ConstantProgression(time.Second * 5),
+			Backoff:        retry.Plain(time.Second * 5),
 			RetryCount:     2,
 			ContextTimeout: time.Second * 3,
 			RetryOperations: NewRetryOperations(
@@ -587,7 +587,7 @@ func Test_RetryContext(t *testing.T) {
 		},
 		{
 			Name:           "retry count excedeed with Recover",
-			Progression:    retry.ConstantProgression(time.Second),
+			Backoff:        retry.Plain(time.Second),
 			RetryCount:     1,
 			ContextTimeout: time.Second * 10,
 			RetryOperations: NewRetryOperations(
@@ -605,7 +605,7 @@ func Test_RetryContext(t *testing.T) {
 		},
 		{
 			Name:           "immediately finish",
-			Progression:    retry.ConstantProgression(time.Second),
+			Backoff:        retry.Plain(time.Second),
 			RetryCount:     0,
 			ContextTimeout: time.Second * 10,
 			RetryOperations: NewRetryOperations(
@@ -619,7 +619,7 @@ func Test_RetryContext(t *testing.T) {
 		},
 		{
 			Name:           "several retry after in a row",
-			Progression:    retry.ConstantProgression(time.Second),
+			Backoff:        retry.Plain(time.Second),
 			RetryCount:     3,
 			ContextTimeout: time.Second * 10,
 			RetryOperations: NewRetryOperations(
