@@ -64,18 +64,6 @@ func Finish() Result {
 	}
 }
 
-func retryCountExceeded(lastResultErr error) Result {
-	err := ErrRetryCountExceeded
-	if lastResultErr != nil {
-		err = errors.Join(err, lastResultErr)
-	}
-
-	return Result{
-		code: codeFinished,
-		err:  err,
-	}
-}
-
 type code uint8
 
 const (
@@ -100,13 +88,13 @@ type (
 	FuncContext func(ctx context.Context) Result
 )
 
-func Retry(backoff Backoff, retryCount uint64, f Func) Result {
+func Retry(backoff Backoff, retryCount uint64, f Func) error {
 	policy := New(backoff, retryCount)
 
 	return policy.Retry(f)
 }
 
-func RetryContext(ctx context.Context, backoff Backoff, retryCount uint64, f FuncContext) Result {
+func RetryContext(ctx context.Context, backoff Backoff, retryCount uint64, f FuncContext) error {
 	policy := New(backoff, retryCount)
 
 	return policy.RetryContext(ctx, f)
@@ -121,10 +109,10 @@ func New(backoff Backoff, retryCount uint64) Policy {
 	return Policy{backoff: backoff, retryCount: retryCount}
 }
 
-func (r Policy) Retry(rf Func) (result Result) {
-	result = rf()
+func (r Policy) Retry(rf Func) error {
+	result := rf()
 	if result.code != codeContinue {
-		return result
+		return result.Err()
 	}
 
 	for attempt := range r.retryCount {
@@ -136,7 +124,7 @@ func (r Policy) Retry(rf Func) (result Result) {
 		if sleepTime <= 0 {
 			result = rf()
 			if result.code != codeContinue {
-				return result
+				return result.Err()
 			}
 
 			continue
@@ -146,17 +134,22 @@ func (r Policy) Retry(rf Func) (result Result) {
 
 		result = rf()
 		if result.code != codeContinue {
-			return result
+			return result.Err()
 		}
 	}
 
-	return retryCountExceeded(result.err)
+	err := ErrRetryCountExceeded
+	if result.err != nil {
+		err = errors.Join(err, result.err)
+	}
+
+	return err
 }
 
-func (r Policy) RetryContext(ctx context.Context, rfctx FuncContext) (result Result) {
-	result = rfctx(ctx)
+func (r Policy) RetryContext(ctx context.Context, rfctx FuncContext) error {
+	result := rfctx(ctx)
 	if result.code != codeContinue {
-		return result
+		return result.Err()
 	}
 
 	for attempt := range r.retryCount {
@@ -169,7 +162,7 @@ func (r Policy) RetryContext(ctx context.Context, rfctx FuncContext) (result Res
 		if sleepTime <= 0 {
 			result = rfctx(ctx)
 			if result.code != codeContinue {
-				return result
+				return result.Err()
 			}
 
 			continue
@@ -186,16 +179,21 @@ func (r Policy) RetryContext(ctx context.Context, rfctx FuncContext) (result Res
 				abortErr = errors.Join(abortErr, result.err)
 			}
 
-			return Abort(abortErr)
+			return abortErr
 		case <-timer.C:
 			result = rfctx(ctx)
 			if result.code != codeContinue {
-				return result
+				return result.Err()
 			}
 		}
 	}
 
-	return retryCountExceeded(result.err)
+	err := ErrRetryCountExceeded
+	if result.err != nil {
+		err = errors.Join(err, result.err)
+	}
+
+	return err
 }
 
 func Plain(backoff time.Duration) Backoff {

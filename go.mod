@@ -4,4 +4,7 @@ go 1.23.1
 
 toolchain go1.24.0
 
-require github.com/amidgo/httpmock v0.0.5
+require (
+	github.com/amidgo/httpmock v0.0.5
+	github.com/google/uuid v1.6.0
+)

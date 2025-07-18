@@ -58,7 +58,7 @@ func (c *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		err  error
 	)
 
-	result := c.policy.RetryContext(
+	retryErr := c.policy.RetryContext(
 		req.Context(),
 		func(ctx context.Context) retry.Result {
 			resp, err = c.transport.RoundTrip(req)
@@ -66,8 +66,8 @@ func (c *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return rf(ctx, resp, err)
 		},
 	)
-	if result.Err() != nil {
-		return nil, result.Err()
+	if retryErr != nil {
+		return nil, retryErr
 	}
 
 	return resp, nil

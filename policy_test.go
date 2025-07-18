@@ -36,8 +36,8 @@ func (r *RetryTest) runMethodTest(t *testing.T) {
 
 	rp := retry.New(r.Backoff, r.RetryCount)
 
-	result := rp.Retry(repeatOperations.Execute())
-	assertResultError(t, r.ExpectedErr, result.Err())
+	err := rp.Retry(repeatOperations.Execute())
+	assertResultError(t, r.ExpectedErr, err)
 
 	finishTime := time.Now()
 
@@ -55,8 +55,8 @@ func (r *RetryTest) runGlobalFuncTest(t *testing.T) {
 
 	now := time.Now()
 
-	result := retry.Retry(r.Backoff, r.RetryCount, repeatOperations.Execute())
-	assertResultError(t, r.ExpectedErr, result.Err())
+	err := retry.Retry(r.Backoff, r.RetryCount, repeatOperations.Execute())
+	assertResultError(t, r.ExpectedErr, err)
 
 	finishTime := time.Now()
 
@@ -283,8 +283,8 @@ func (r *RetryContextTest) runContextMethodTest(t *testing.T) {
 
 	rp := retry.New(r.Backoff, r.RetryCount)
 
-	result := rp.RetryContext(ctx, repeatOperations.ExecuteContext())
-	assertResultError(t, r.ExpectedErr, result.Err())
+	err := rp.RetryContext(ctx, repeatOperations.ExecuteContext())
+	assertResultError(t, r.ExpectedErr, err)
 
 	finishTime := time.Now()
 
@@ -305,8 +305,8 @@ func (r *RetryContextTest) runContextFuncTest(t *testing.T) {
 	ctx, cancel := context.WithDeadlineCause(context.Background(), now.Add(r.ContextTimeout), r.ContextCause)
 	defer cancel()
 
-	result := retry.RetryContext(ctx, r.Backoff, r.RetryCount, repeatOperations.ExecuteContext())
-	assertResultError(t, r.ExpectedErr, result.Err())
+	err := retry.RetryContext(ctx, r.Backoff, r.RetryCount, repeatOperations.ExecuteContext())
+	assertResultError(t, r.ExpectedErr, err)
 
 	finishTime := time.Now()
 
