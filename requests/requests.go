@@ -111,7 +111,7 @@ func requestIDAttr(requestID uuid.UUID) slog.Attr {
 }
 
 func errorAttr(err error) slog.Attr {
-	return slog.String("err", err.Error())
+	return slog.Any("err", err)
 }
 
 func completedRequestAttr(completedRequest CompletedRequest) slog.Attr {
