@@ -207,7 +207,13 @@ func (p *Policy) Retry(
 		)
 	}
 
-	retryErr := p.retry(ctx, log, requestID, rfctx)
+	retryErr := p.policy.RetryContext(ctx,
+		p.retryFunc(
+			log,
+			requestID,
+			rfctx,
+		),
+	)
 	switch retryErr {
 	case nil:
 		return p.markRequestAsCompleted(ctx, log,
@@ -255,59 +261,56 @@ func (p *Policy) lastAttemptNumber(
 	return lastAttemptNumber, nil
 }
 
-func (p *Policy) retry(
-	ctx context.Context,
+func (p *Policy) retryFunc(
 	log *slog.Logger,
 	requestID uuid.UUID,
 	rfctx retry.FuncContext,
-) error {
-	return p.policy.RetryContext(ctx,
-		func(ctx context.Context) retry.Result {
-			result := rfctx(ctx)
+) retry.FuncContext {
+	return func(ctx context.Context) retry.Result {
+		result := rfctx(ctx)
 
-			attempt := Attempt{
-				RequestID: requestID,
-				Err:       result.Err(),
-				CreatedAt: time.Now().UTC(),
-			}
+		attempt := Attempt{
+			RequestID: requestID,
+			Err:       result.Err(),
+			CreatedAt: time.Now().UTC(),
+		}
 
-			const insertRequestAttemptOp = "storage.InsertRequestAttempt"
+		const insertRequestAttemptOp = "storage.InsertRequestAttempt"
 
-			insertRequestAttemptLogger := log.With(
-				attemptAttr(attempt),
-				opAttr(insertRequestAttemptOp),
+		log := log.With(
+			attemptAttr(attempt),
+			opAttr(insertRequestAttemptOp),
+		)
+
+		log.InfoContext(ctx, startMsg)
+
+		attemptNumber, err := p.storage.InsertRequestAttempt(ctx, attempt)
+		if err != nil {
+			log.ErrorContext(ctx,
+				failedMsg,
+				errorAttr(err),
 			)
-
-			insertRequestAttemptLogger.InfoContext(ctx, startMsg)
-
-			attemptNumber, err := p.storage.InsertRequestAttempt(ctx, attempt)
-			if err != nil {
-				insertRequestAttemptLogger.ErrorContext(ctx,
-					failedMsg,
-					errorAttr(err),
-				)
-
-				return result
-			}
-
-			insertRequestAttemptLogger = insertRequestAttemptLogger.With(
-				attemptNumberAttr(attemptNumber),
-			)
-
-			if retryCountExceeded(p.options, attemptNumber) {
-				insertRequestAttemptLogger.ErrorContext(ctx,
-					retryCountExceededMsg,
-					errorAttr(retry.ErrRetryCountExceeded),
-				)
-
-				return retry.Abort(retry.ErrRetryCountExceeded)
-			}
-
-			insertRequestAttemptLogger.InfoContext(ctx, finishMsg)
 
 			return result
-		},
-	)
+		}
+
+		log = log.With(
+			attemptNumberAttr(attemptNumber),
+		)
+
+		if retryCountExceeded(p.options, attemptNumber) {
+			log.ErrorContext(ctx,
+				retryCountExceededMsg,
+				errorAttr(retry.ErrRetryCountExceeded),
+			)
+
+			return retry.Abort(retry.ErrRetryCountExceeded)
+		}
+
+		log.InfoContext(ctx, finishMsg)
+
+		return result
+	}
 }
 
 func (p *Policy) markRequestAsCompleted(
