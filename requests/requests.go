@@ -135,7 +135,16 @@ func attemptNumberAttr(attemptNumber uint64) slog.Attr {
 }
 
 func maxAttemptsAttr(maxAttempts *uint64) slog.Attr {
-	return slog.Any("maxAttempts", maxAttempts)
+	attr := slog.Attr{
+		Key:   "maxAttempts",
+		Value: slog.AnyValue(maxAttempts),
+	}
+
+	if maxAttempts != nil {
+		attr.Value = slog.Uint64Value(*maxAttempts)
+	}
+
+	return attr
 }
 
 func opError(opName string, err error) error {
