@@ -32,18 +32,22 @@ var (
 )
 
 type Transport struct {
-	policy         retry.Policy
+	middlewares    []retry.Middleware
 	transport      http.RoundTripper
 	handleResponse func(ctx context.Context, resp *http.Response, err error) retry.Result
 }
 
 var _ http.RoundTripper = (*Transport)(nil)
 
-func NewTransport(policy retry.Policy, transport http.RoundTripper, handleResponse func(context.Context, *http.Response, error) retry.Result) *Transport {
+func NewTransport(
+	transport http.RoundTripper,
+	handleResponse func(context.Context, *http.Response, error) retry.Result,
+	middlwares ...retry.Middleware,
+) *Transport {
 	return &Transport{
-		policy:         policy,
 		transport:      transport,
 		handleResponse: handleResponse,
+		middlewares:    middlwares,
 	}
 }
 
@@ -58,13 +62,14 @@ func (c *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		err  error
 	)
 
-	retryErr := c.policy.RetryContext(
+	retryErr := retry.Retry(
 		req.Context(),
 		func(ctx context.Context) retry.Result {
 			resp, err = c.transport.RoundTrip(req)
 
 			return rf(ctx, resp, err)
 		},
+		c.middlewares...,
 	)
 	if retryErr != nil {
 		return nil, retryErr

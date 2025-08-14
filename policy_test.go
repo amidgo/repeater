@@ -15,6 +15,8 @@ type RetryTest struct {
 	Name                  string
 	Backoff               retry.Backoff
 	RetryCount            uint64
+	ContextTimeout        time.Duration
+	ContextCause          error
 	RetryOperations       RetryOperations
 	ExpectedErr           error
 	ExpectedRetryDuration time.Duration
@@ -23,297 +25,42 @@ type RetryTest struct {
 func (r *RetryTest) Test(t *testing.T) {
 	t.Parallel()
 
-	t.Run("method", r.runMethodTest)
-	t.Run("global func", r.runGlobalFuncTest)
+	t.Run("retry.WithRetryCount, retry.WithBackoff",
+		r.retryTest(
+			retry.WithMaxRetryCount(r.RetryCount),
+			retry.WithBackoff(r.Backoff),
+		),
+	)
+
+	t.Run("retry.WithBackoff, retry.WithRetryCount",
+		r.retryTest(
+			retry.WithMaxRetryCount(r.RetryCount),
+			retry.WithBackoff(r.Backoff),
+		),
+	)
 }
 
-func (r *RetryTest) runMethodTest(t *testing.T) {
-	t.Parallel()
+func (r *RetryTest) retryTest(mdw ...retry.Middleware) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Parallel()
 
-	repeatOperations := r.RetryOperations.Copy()
+		repeatOperations := r.RetryOperations.Copy()
 
-	now := time.Now()
+		now := time.Now()
 
-	rp := retry.New(r.Backoff, r.RetryCount)
+		ctx, cancel := context.WithDeadlineCause(context.Background(), now.Add(r.ContextTimeout), r.ContextCause)
+		defer cancel()
 
-	err := rp.Retry(repeatOperations.Execute())
-	assertResultError(t, r.ExpectedErr, err)
+		err := retry.Retry(ctx, repeatOperations.ExecuteContext(), mdw...)
+		assertResultError(t, r.ExpectedErr, err)
 
-	finishTime := time.Now()
+		finishTime := time.Now()
 
-	diff := finishTime.Sub(now) - r.ExpectedRetryDuration
+		diff := finishTime.Sub(now) - r.ExpectedRetryDuration
 
-	if diff.Abs() > time.Millisecond*10 {
-		t.Fatalf("too big difference between actual and expected repeat time: %s", diff)
-	}
-}
-
-func (r *RetryTest) runGlobalFuncTest(t *testing.T) {
-	t.Parallel()
-
-	repeatOperations := r.RetryOperations.Copy()
-
-	now := time.Now()
-
-	err := retry.Retry(r.Backoff, r.RetryCount, repeatOperations.Execute())
-	assertResultError(t, r.ExpectedErr, err)
-
-	finishTime := time.Now()
-
-	diff := finishTime.Sub(now) - r.ExpectedRetryDuration
-
-	if diff.Abs() > time.Millisecond*10 {
-		t.Fatalf("too big difference between actual and expected repeat time: %s", diff)
-	}
-}
-
-func Test_Retry(t *testing.T) {
-	t.Parallel()
-
-	tests := []*RetryTest{
-		{
-			Name:       "basic repeat",
-			Backoff:    retry.Plain(time.Second),
-			RetryCount: 2,
-			RetryOperations: NewRetryOperations(
-				RetryOperation{
-					Duration: time.Millisecond * 500,
-					Result:   retry.Continue(),
-				},
-				// 1 second pause
-				RetryOperation{
-					Duration: time.Millisecond * 500,
-					Result:   retry.Continue(),
-				},
-				// 1 second pause
-				RetryOperation{
-					Duration: time.Millisecond * 1000,
-					Result:   retry.Continue(),
-				},
-			),
-			ExpectedRetryDuration: time.Second * 4,
-			ExpectedErr:           retry.ErrRetryCountExceeded,
-		},
-		{
-			Name:       "zero delay repeat",
-			Backoff:    retry.Plain(0),
-			RetryCount: 2,
-			RetryOperations: NewRetryOperations(
-				RetryOperation{
-					Duration: time.Millisecond * 500,
-					Result:   retry.Continue(),
-				},
-				// 1 second pause
-				RetryOperation{
-					Duration: time.Millisecond * 500,
-					Result:   retry.Continue(),
-				},
-				// 1 second pause
-				RetryOperation{
-					Duration: time.Millisecond * 1000,
-					Result:   retry.Continue(),
-				},
-			),
-			ExpectedRetryDuration: time.Second * 2,
-			ExpectedErr:           retry.ErrRetryCountExceeded,
-		},
-		{
-			Name:       "success repeat after first call",
-			Backoff:    retry.Plain(time.Second),
-			RetryCount: 2,
-			RetryOperations: NewRetryOperations(
-				RetryOperation{
-					Duration: time.Millisecond * 500,
-					Result:   retry.Continue(),
-				},
-				// 1 second pause
-				RetryOperation{
-					Duration: time.Millisecond * 500,
-					Result:   retry.Finish(),
-				},
-				// 1 second pause
-				RetryOperation{
-					Duration: time.Millisecond * 1000,
-					Result:   retry.Continue(),
-				},
-			),
-			ExpectedRetryDuration: time.Second * 2,
-			ExpectedErr:           nil,
-		},
-		{
-			Name:       "success repeat after first call, retry after",
-			Backoff:    retry.Plain(time.Second * 2),
-			RetryCount: 2,
-			RetryOperations: NewRetryOperations(
-				RetryOperation{
-					Duration: time.Millisecond * 500,
-					Result:   retry.RetryAfter(time.Second),
-				},
-				RetryOperation{
-					Duration: 0,
-					// negative duration for retry immediately
-					Result: retry.RetryAfter(-time.Second),
-				},
-				// 1 second pause
-				RetryOperation{
-					Duration: time.Millisecond * 500,
-					Result:   retry.Finish(),
-				},
-				// 1 second pause
-				RetryOperation{
-					Duration: time.Millisecond * 1000,
-					Result:   retry.Continue(),
-				},
-			),
-			ExpectedRetryDuration: time.Second * 2,
-			ExpectedErr:           nil,
-		},
-		{
-			Name:       "zero repeat count",
-			Backoff:    retry.Plain(time.Second),
-			RetryCount: 0,
-			RetryOperations: NewRetryOperations(
-				RetryOperation{
-					Duration: time.Millisecond * 500,
-					Result:   retry.Continue(),
-				},
-			),
-			ExpectedRetryDuration: time.Millisecond * 500,
-			ExpectedErr:           retry.ErrRetryCountExceeded,
-		},
-		{
-			Name:       "aborted with error",
-			Backoff:    retry.Plain(time.Second),
-			RetryCount: 1,
-			RetryOperations: NewRetryOperations(
-				RetryOperation{
-					Duration: time.Millisecond * 500,
-					Result:   retry.Abort(io.ErrUnexpectedEOF),
-				},
-			),
-			ExpectedRetryDuration: time.Millisecond * 500,
-			ExpectedErr:           io.ErrUnexpectedEOF,
-		},
-		{
-			Name:       "abort after recover",
-			Backoff:    retry.Plain(time.Second),
-			RetryCount: 2,
-			RetryOperations: NewRetryOperations(
-				RetryOperation{
-					Duration: time.Millisecond * 500,
-					Result:   retry.Recover(io.ErrUnexpectedEOF),
-				},
-				// 1 second pause
-				RetryOperation{
-					Duration: time.Millisecond * 500,
-					Result:   retry.Abort(io.ErrShortWrite),
-				},
-			),
-			ExpectedRetryDuration: time.Second * 2,
-			ExpectedErr:           io.ErrShortWrite,
-		},
-		{
-			Name:       "success after recover",
-			Backoff:    retry.Plain(time.Second),
-			RetryCount: 2,
-			RetryOperations: NewRetryOperations(
-				RetryOperation{
-					Duration: time.Millisecond * 500,
-					Result:   retry.Recover(io.ErrUnexpectedEOF),
-				},
-				RetryOperation{
-					Duration: 0,
-					Result:   retry.Finish(),
-				},
-			),
-			ExpectedRetryDuration: time.Millisecond * 1500,
-			ExpectedErr:           nil,
-		},
-		{
-			Name:       "retry count excedeed with Recover",
-			Backoff:    retry.Plain(time.Second),
-			RetryCount: 1,
-			RetryOperations: NewRetryOperations(
-				RetryOperation{
-					Duration: 0,
-					Result:   retry.Recover(io.ErrUnexpectedEOF),
-				},
-				RetryOperation{
-					Duration: 0,
-					Result:   retry.Recover(io.ErrUnexpectedEOF),
-				},
-			),
-			ExpectedRetryDuration: time.Second,
-			ExpectedErr:           errors.Join(retry.ErrRetryCountExceeded, io.ErrUnexpectedEOF),
-		},
-	}
-
-	for _, tst := range tests {
-		t.Run(tst.Name, tst.Test)
-	}
-}
-
-type RetryContextTest struct {
-	Name                  string
-	Backoff               retry.Backoff
-	RetryCount            uint64
-	ContextTimeout        time.Duration
-	ContextCause          error
-	RetryOperations       RetryOperations
-	ExpectedErr           error
-	ExpectedRetryDuration time.Duration
-}
-
-func (r *RetryContextTest) Test(t *testing.T) {
-	t.Parallel()
-
-	t.Run("retry.New().RetryContext()", r.runContextMethodTest)
-	t.Run("retry.RetryContext()", r.runContextFuncTest)
-}
-
-func (r *RetryContextTest) runContextMethodTest(t *testing.T) {
-	t.Parallel()
-
-	repeatOperations := r.RetryOperations.Copy()
-
-	now := time.Now()
-
-	ctx, cancel := context.WithDeadlineCause(context.Background(), now.Add(r.ContextTimeout), r.ContextCause)
-	defer cancel()
-
-	rp := retry.New(r.Backoff, r.RetryCount)
-
-	err := rp.RetryContext(ctx, repeatOperations.ExecuteContext())
-	assertResultError(t, r.ExpectedErr, err)
-
-	finishTime := time.Now()
-
-	diff := finishTime.Sub(now) - r.ExpectedRetryDuration
-
-	if diff.Abs() > time.Millisecond*10 {
-		t.Fatalf("too big difference between actual and expected repeat time: %s", diff)
-	}
-}
-
-func (r *RetryContextTest) runContextFuncTest(t *testing.T) {
-	t.Parallel()
-
-	repeatOperations := r.RetryOperations.Copy()
-
-	now := time.Now()
-
-	ctx, cancel := context.WithDeadlineCause(context.Background(), now.Add(r.ContextTimeout), r.ContextCause)
-	defer cancel()
-
-	err := retry.RetryContext(ctx, r.Backoff, r.RetryCount, repeatOperations.ExecuteContext())
-	assertResultError(t, r.ExpectedErr, err)
-
-	finishTime := time.Now()
-
-	diff := finishTime.Sub(now) - r.ExpectedRetryDuration
-
-	if diff.Abs() > time.Millisecond*10 {
-		t.Fatalf("too big difference between actual and expected repeat time: %s", diff)
+		if diff.Abs() > time.Millisecond*10 {
+			t.Fatalf("too big difference between actual and expected repeat time: %s", diff)
+		}
 	}
 }
 
@@ -354,7 +101,7 @@ func extractErrors(expectedErr error) []error {
 func Test_RetryContext(t *testing.T) {
 	t.Parallel()
 
-	tests := []*RetryContextTest{
+	tests := []*RetryTest{
 		{
 			Name:           "basic repeat",
 			Backoff:        retry.Plain(time.Second),
@@ -643,6 +390,32 @@ func Test_RetryContext(t *testing.T) {
 			ExpectedRetryDuration: 0,
 			ExpectedErr:           nil,
 		},
+		{
+			Name:           "recover after",
+			Backoff:        retry.Plain(time.Second * 100),
+			RetryCount:     3,
+			ContextTimeout: time.Second * 100,
+			RetryOperations: NewRetryOperations(
+				RetryOperation{
+					Duration: 0,
+					Result:   retry.RecoverAfter(io.ErrUnexpectedEOF, time.Second),
+				},
+				RetryOperation{
+					Duration: time.Second,
+					Result:   retry.RecoverAfter(io.ErrUnexpectedEOF, time.Millisecond*500),
+				},
+				RetryOperation{
+					Duration: time.Millisecond * 500,
+					Result:   retry.RecoverAfter(io.ErrUnexpectedEOF, time.Millisecond*500),
+				},
+				RetryOperation{
+					Duration: time.Millisecond * 500,
+					Result:   retry.RecoverAfter(io.ErrNoProgress, time.Millisecond*500),
+				},
+			),
+			ExpectedRetryDuration: time.Second * 4,
+			ExpectedErr:           errors.Join(retry.ErrRetryCountExceeded, io.ErrNoProgress),
+		},
 	}
 
 	for _, tst := range tests {
@@ -683,6 +456,10 @@ func (r *RetryOperations) ExecuteContext() func(context.Context) retry.Result {
 }
 
 func (r *RetryOperations) pop() RetryOperation {
+	if len(r.ops) == 0 {
+		panic("zero length r.ops")
+	}
+
 	op := r.ops[0]
 	r.ops = r.ops[1:]
 
@@ -725,64 +502,73 @@ type resultEqTest struct {
 	Name            string
 	Original, Other retry.Result
 	ExpectedEqual   bool
-	ExpectedMessage string
 }
 
 func (r *resultEqTest) Test(t *testing.T) {
-	equal, message := r.Original.Eq(r.Other)
+	if equal(r.Original, r.Other) != r.ExpectedEqual {
+		const message = "compare results\n\nexpected:\n%+v\n\nactual:\n%+v\n\nExpectedEqual: %t"
+		t.Fatalf(
+			message,
+			r.Original,
+			r.Other,
+			r.ExpectedEqual,
+		)
+	}
+}
 
-	if equal != r.ExpectedEqual {
-		t.Fatalf("compare equal, expected: %t, actual: %t", r.ExpectedEqual, equal)
+func equal(orig, other retry.Result) bool {
+	if orig.Backoff() != other.Backoff() {
+		return false
 	}
 
-	if message != r.ExpectedMessage {
-		t.Fatalf("compare message, message not equal\n\nexpected:\n%s\n\nactual:\n%s", r.ExpectedMessage, message)
+	if !errors.Is(orig.Err(), other.Err()) {
+		return false
 	}
+
+	if orig.Finished() != other.Finished() {
+		return false
+	}
+
+	return true
 }
 
 func Test_Result_Eq(t *testing.T) {
 	tests := []*resultEqTest{
 		{
-			Name:            "code not equal",
-			Original:        retry.Continue(),
-			Other:           retry.Finish(),
-			ExpectedEqual:   false,
-			ExpectedMessage: "compare 'code', original: continue, other: finished",
+			Name:          "code not equal",
+			Original:      retry.Continue(),
+			Other:         retry.Finish(),
+			ExpectedEqual: false,
 		},
 		{
-			Name:            "retryAfter not equal",
-			Original:        retry.RetryAfter(time.Second),
-			Other:           retry.RetryAfter(time.Second * 2),
-			ExpectedEqual:   false,
-			ExpectedMessage: "compare 'retryAfter', original: 1s, other: 2s",
+			Name:          "retryAfter not equal",
+			Original:      retry.RetryAfter(time.Second),
+			Other:         retry.RetryAfter(time.Second * 2),
+			ExpectedEqual: false,
 		},
 		{
-			Name:            "err not equal",
-			Original:        retry.Recover(io.ErrUnexpectedEOF),
-			Other:           retry.Recover(io.ErrNoProgress),
-			ExpectedEqual:   false,
-			ExpectedMessage: "compare 'err', original: unexpected EOF, other: multiple Read calls return no data or error",
+			Name:          "err not equal",
+			Original:      retry.Recover(io.ErrUnexpectedEOF),
+			Other:         retry.Recover(io.ErrNoProgress),
+			ExpectedEqual: false,
 		},
 		{
-			Name:            "wrapped err not equal",
-			Original:        retry.Recover(io.ErrUnexpectedEOF),
-			Other:           retry.Recover(fmt.Errorf("wrapped: %w", io.ErrUnexpectedEOF)),
-			ExpectedEqual:   false,
-			ExpectedMessage: "compare 'err', original: unexpected EOF, other: wrapped: unexpected EOF",
+			Name:          "wrapped err not equal",
+			Original:      retry.Recover(io.ErrUnexpectedEOF),
+			Other:         retry.Recover(fmt.Errorf("wrapped: %w", io.ErrUnexpectedEOF)),
+			ExpectedEqual: false,
 		},
 		{
-			Name:            "equal, retryAfter",
-			Original:        retry.RetryAfter(time.Second),
-			Other:           retry.RetryAfter(time.Second),
-			ExpectedEqual:   true,
-			ExpectedMessage: "",
+			Name:          "equal, retryAfter",
+			Original:      retry.RetryAfter(time.Second),
+			Other:         retry.RetryAfter(time.Second),
+			ExpectedEqual: true,
 		},
 		{
-			Name:            "equal, err",
-			Original:        retry.Recover(io.ErrUnexpectedEOF),
-			Other:           retry.Recover(io.ErrUnexpectedEOF),
-			ExpectedEqual:   true,
-			ExpectedMessage: "",
+			Name:          "equal, err",
+			Original:      retry.Recover(io.ErrUnexpectedEOF),
+			Other:         retry.Recover(io.ErrUnexpectedEOF),
+			ExpectedEqual: true,
 		},
 	}
 

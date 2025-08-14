@@ -26,7 +26,7 @@ type HandlerMock func(t *testing.T) func(ctx context.Context, resp *http.Respons
 type transportTest struct {
 	Name             string
 	Request          *http.Request
-	Policy           retry.Policy
+	Middlewares      []retry.Middleware
 	Calls            httpmock.Calls
 	Handler          func(t *testing.T) func(ctx context.Context, resp *http.Response, err error) retry.Result
 	ExpectedResponse *httpmock.Response
@@ -35,9 +35,9 @@ type transportTest struct {
 
 func (tt *transportTest) Test(t *testing.T) {
 	transport := retryhttp.NewTransport(
-		tt.Policy,
 		httpmock.NewTransport(t, tt.Calls, httpmock.HandleCallCompareInput),
 		tt.Handler(t),
+		tt.Middlewares...,
 	)
 
 	resp, err := transport.RoundTrip(tt.Request)
@@ -205,7 +205,10 @@ func Test_Transport(t *testing.T) {
 		{
 			Name:    "many calls",
 			Request: req,
-			Policy:  retry.New(retry.Plain(0), 2),
+			Middlewares: []retry.Middleware{
+				retry.WithBackoff(retry.Plain(0)),
+				retry.WithMaxRetryCount(2),
+			},
 			Calls: httpmock.SequenceCalls(
 				httpmock.Call{
 					Input:    input,
@@ -246,7 +249,10 @@ func Test_Transport(t *testing.T) {
 		{
 			Name:    "recover error after retry count exceeded",
 			Request: req,
-			Policy:  retry.New(retry.Plain(0), 1),
+			Middlewares: []retry.Middleware{
+				retry.WithBackoff(retry.Plain(0)),
+				retry.WithMaxRetryCount(1),
+			},
 			Calls: httpmock.SequenceCalls(
 				httpmock.Call{
 					Input: input,
@@ -299,10 +305,7 @@ func Test_DefaultHandleResponse_redirect(t *testing.T) {
 
 	expectedResult := retry.Abort(err)
 
-	equal, message := expectedResult.Eq(result)
-	if !equal {
-		t.Fatal(message)
-	}
+	compareResults(t, expectedResult, result)
 }
 
 func Test_DefaultHandleResponse_missingProtocolScheme(t *testing.T) {
@@ -323,10 +326,7 @@ func Test_DefaultHandleResponse_missingProtocolScheme(t *testing.T) {
 
 	expectedResult := retry.Abort(err)
 
-	equal, message := expectedResult.Eq(result)
-	if !equal {
-		t.Fatal(message)
-	}
+	compareResults(t, expectedResult, result)
 }
 
 func Test_DefaultHandleResponse_unsupportedProtocolScheme(t *testing.T) {
@@ -343,10 +343,7 @@ func Test_DefaultHandleResponse_unsupportedProtocolScheme(t *testing.T) {
 
 	expectedResult := retry.Abort(err)
 
-	equal, message := expectedResult.Eq(result)
-	if !equal {
-		t.Fatal(message)
-	}
+	compareResults(t, expectedResult, result)
 }
 
 func Test_DefaultHandleResponse_invalidHeaderKey(t *testing.T) {
@@ -370,10 +367,7 @@ func Test_DefaultHandleResponse_invalidHeaderKey(t *testing.T) {
 
 	expectedResult := retry.Abort(err)
 
-	equal, message := expectedResult.Eq(result)
-	if !equal {
-		t.Fatal(message)
-	}
+	compareResults(t, expectedResult, result)
 }
 
 func Test_DefaultHandleResponse_invalidHeaderValue(t *testing.T) {
@@ -397,10 +391,7 @@ func Test_DefaultHandleResponse_invalidHeaderValue(t *testing.T) {
 
 	expectedResult := retry.Abort(err)
 
-	equal, message := expectedResult.Eq(result)
-	if !equal {
-		t.Fatal(message)
-	}
+	compareResults(t, expectedResult, result)
 }
 
 var (
@@ -453,10 +444,7 @@ func Test_DefaultHandleResponse_tlsCertificateVerificationError(t *testing.T) {
 
 	expectedResult := retry.Abort(err)
 
-	equal, message := expectedResult.Eq(result)
-	if !equal {
-		t.Fatal(message)
-	}
+	compareResults(t, expectedResult, result)
 }
 
 func Test_DefaultHandleResponse_retryStatuses(t *testing.T) {
@@ -497,10 +485,7 @@ func Test_DefaultHandleResponse_retryStatuses(t *testing.T) {
 
 			expectedResult := retry.Continue()
 
-			equal, message := expectedResult.Eq(result)
-			if !equal {
-				t.Fatal(message)
-			}
+			compareResults(t, expectedResult, result)
 		})
 	}
 }
@@ -583,10 +568,7 @@ func Test_DefaultHandleResponse_finishStatuses(t *testing.T) {
 
 			expectedResult := retry.Finish()
 
-			equal, message := expectedResult.Eq(result)
-			if !equal {
-				t.Fatal(message)
-			}
+			compareResults(t, expectedResult, result)
 		})
 	}
 }
@@ -613,14 +595,25 @@ func Test_DefaultHandleResponse_DoError(t *testing.T) {
 
 	expectedResult := retry.Recover(urlErr)
 
-	equal, message := expectedResult.Eq(result)
-	if !equal {
-		t.Fatal(message)
-	}
+	compareResults(t, expectedResult, result)
 }
 
 type returnErrorTransport struct{ Err error }
 
 func (r returnErrorTransport) RoundTrip(*http.Request) (*http.Response, error) {
 	return nil, r.Err
+}
+
+func compareResults(t *testing.T, expected, actual retry.Result) {
+	if expected.Backoff() != actual.Backoff() {
+		t.Fatalf("backoff is not equal\n\nexpected:\n%s\n\nactual:\n%s", expected.Backoff(), actual.Backoff())
+	}
+
+	if !errors.Is(expected.Err(), actual.Err()) {
+		t.Fatalf("error is not equal\n\nexpected:\n%s\n\nactual:\n%s", expected.Err(), actual.Err())
+	}
+
+	if expected.Finished() != actual.Finished() {
+		t.Fatalf("finished is not equal\n\nexpected:\n%t\n\nactual:\n%t", expected.Finished(), actual.Finished())
+	}
 }

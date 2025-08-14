@@ -3,32 +3,24 @@ package retry
 import (
 	"context"
 	"errors"
-	"fmt"
+	"slices"
 	"time"
 )
 
 var ErrRetryCountExceeded = errors.New("retry count exceeded")
 
 type Result struct {
-	code       code
-	retryAfter time.Duration
-	err        error
+	code    code
+	backoff time.Duration
+	err     error
 }
 
-func (r Result) Eq(result Result) (bool, string) {
-	if r.code != result.code {
-		return false, fmt.Sprintf("compare 'code', original: %s, other: %s", r.code, result.code)
-	}
+func (r Result) Finished() bool {
+	return r.code == codeFinished
+}
 
-	if r.retryAfter != result.retryAfter {
-		return false, fmt.Sprintf("compare 'retryAfter', original: %s, other: %s", r.retryAfter, result.retryAfter)
-	}
-
-	if r.err != result.err {
-		return false, fmt.Sprintf("compare 'err', original: %s, other: %s", r.err, result.err)
-	}
-
-	return true, ""
+func (r Result) Backoff() time.Duration {
+	return r.backoff
 }
 
 func (r Result) Err() error {
@@ -41,26 +33,41 @@ func Continue() Result {
 
 func Recover(recoverErr error) Result {
 	return Result{
-		err: recoverErr,
+		err:     recoverErr,
+		code:    codeContinue,
+		backoff: 0,
+	}
+}
+
+func RecoverAfter(recoverErr error, backoff time.Duration) Result {
+	return Result{
+		err:     recoverErr,
+		code:    codeContinue,
+		backoff: backoff,
 	}
 }
 
 func Abort(err error) Result {
 	return Result{
-		code: codeFinished,
-		err:  err,
+		err:     err,
+		code:    codeFinished,
+		backoff: 0,
 	}
 }
 
-func RetryAfter(sleepDuration time.Duration) Result {
+func RetryAfter(backoff time.Duration) Result {
 	return Result{
-		retryAfter: sleepDuration,
+		err:     nil,
+		code:    codeContinue,
+		backoff: backoff,
 	}
 }
 
 func Finish() Result {
 	return Result{
-		code: codeFinished,
+		err:     nil,
+		code:    codeFinished,
+		backoff: 0,
 	}
 }
 
@@ -71,98 +78,95 @@ const (
 	codeFinished
 )
 
-func (c code) String() string {
-	switch c {
-	case codeContinue:
-		return "continue"
-	case codeFinished:
-		return "finished"
-	default:
-		panic("unexpected code value: " + fmt.Sprint(int(c)))
-	}
-}
-
 type (
-	Backoff     func(uint64) time.Duration
-	Func        func() Result
-	FuncContext func(ctx context.Context) Result
+	Backoff    func(uint64) time.Duration
+	Func       func(context.Context) Result
+	Middleware func(Func) Func
 )
 
-func Retry(backoff Backoff, retryCount uint64, f Func) error {
-	policy := New(backoff, retryCount)
+func WithBackoff(backoff Backoff) Middleware {
+	return func(rf Func) Func {
+		attempt := uint64(0)
 
-	return policy.Retry(f)
+		return func(ctx context.Context) Result {
+			res := rf(ctx)
+
+			attempt, res = backoffMiddleware(attempt, backoff, res)
+
+			return res
+		}
+	}
 }
 
-func RetryContext(ctx context.Context, backoff Backoff, retryCount uint64, f FuncContext) error {
-	policy := New(backoff, retryCount)
+func WithMaxRetryCount(maxRetryCount uint64) Middleware {
+	return func(rf Func) Func {
+		attempt := uint64(0)
 
-	return policy.RetryContext(ctx, f)
+		return func(ctx context.Context) Result {
+			res := rf(ctx)
+
+			attempt, res = retryCountExceededMiddleware(attempt, maxRetryCount, res)
+
+			return res
+		}
+	}
 }
 
-type Policy struct {
-	backoff    Backoff
-	retryCount uint64
-}
-
-func New(backoff Backoff, retryCount uint64) Policy {
-	return Policy{backoff: backoff, retryCount: retryCount}
-}
-
-func (r Policy) Retry(rf Func) error {
-	result := rf()
-	if result.code != codeContinue {
-		return result.Err()
+func backoffMiddleware(attempt uint64, backoff Backoff, res Result) (uint64, Result) {
+	if res.code != codeContinue {
+		return attempt, res
 	}
 
-	for attempt := range r.retryCount {
-		sleepTime := r.backoff(attempt)
-		if result.retryAfter != 0 {
-			sleepTime = result.retryAfter
-		}
+	if res.backoff != 0 {
+		attempt++
+
+		return attempt, res
+	}
+
+	res.backoff = backoff(attempt)
+	attempt++
+
+	return attempt, res
+}
+
+func retryCountExceededMiddleware(attempt, maxRetryCount uint64, res Result) (uint64, Result) {
+	if res.code != codeContinue {
+		return attempt, res
+	}
+
+	if attempt < maxRetryCount {
+		attempt++
+
+		return attempt, res
+	}
+
+	switch res.err {
+	case nil:
+		res = Abort(ErrRetryCountExceeded)
+	default:
+		res = Abort(errors.Join(ErrRetryCountExceeded, res.err))
+	}
+
+	return attempt, res
+}
+
+func Retry(ctx context.Context, rf Func, middlewares ...Middleware) error {
+	for _, mdw := range slices.Backward(middlewares) {
+		rf = mdw(rf)
+	}
+
+	res := rf(ctx)
+	if res.code != codeContinue {
+		return res.Err()
+	}
+
+	for {
+		sleepTime := res.backoff
 
 		if sleepTime <= 0 {
-			result = rf()
-			if result.code != codeContinue {
-				return result.Err()
-			}
-
-			continue
-		}
-
-		<-time.After(sleepTime)
-
-		result = rf()
-		if result.code != codeContinue {
-			return result.Err()
-		}
-	}
-
-	err := ErrRetryCountExceeded
-	if result.err != nil {
-		err = errors.Join(err, result.err)
-	}
-
-	return err
-}
-
-func (r Policy) RetryContext(ctx context.Context, rfctx FuncContext) error {
-	result := rfctx(ctx)
-	if result.code != codeContinue {
-		return result.Err()
-	}
-
-	for attempt := range r.retryCount {
-		sleepTime := r.backoff(attempt)
-
-		if result.retryAfter != 0 {
-			sleepTime = result.retryAfter
-		}
-
-		if sleepTime <= 0 {
-			result = rfctx(ctx)
-			if result.code != codeContinue {
-				return result.Err()
+			res = rf(ctx)
+			if res.code != codeContinue {
+				return res.Err()
 			}
 
 			continue
@@ -175,25 +179,18 @@ func (r Policy) RetryContext(ctx context.Context, rfctx FuncContext) error {
 			timer.Stop()
 
 			abortErr := context.Cause(ctx)
-			if result.err != nil {
-				abortErr = errors.Join(abortErr, result.err)
+			if res.err != nil {
+				abortErr = errors.Join(abortErr, res.err)
 			}
 
 			return abortErr
 		case <-timer.C:
-			result = rfctx(ctx)
-			if result.code != codeContinue {
-				return result.Err()
+			res = rf(ctx)
+			if res.code != codeContinue {
+				return res.Err()
 			}
 		}
 	}
-
-	err := ErrRetryCountExceeded
-	if result.err != nil {
-		err = errors.Join(err, result.err)
-	}
-
-	return err
 }
 
 func Plain(backoff time.Duration) Backoff {
