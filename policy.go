@@ -47,6 +47,14 @@ func RecoverAfter(recoverErr error, backoff time.Duration) Result {
 	}
 }
 
+func RecoverImmediately(recoverErr error) Result {
+	return Result{
+		err:     recoverErr,
+		code:    codeContinue,
+		backoff: -1,
+	}
+}
+
 func Abort(err error) Result {
 	return Result{
 		err:     err,
@@ -55,11 +63,19 @@ func Abort(err error) Result {
 	}
 }
 
-func RetryAfter(backoff time.Duration) Result {
+func After(backoff time.Duration) Result {
 	return Result{
 		err:     nil,
 		code:    codeContinue,
 		backoff: backoff,
+	}
+}
+
+func Immediately() Result {
+	return Result{
+		err:     nil,
+		code:    codeContinue,
+		backoff: -1,
 	}
 }
 

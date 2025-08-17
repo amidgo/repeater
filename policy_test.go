@@ -160,7 +160,7 @@ func Test_RetryContext(t *testing.T) {
 			RetryOperations: NewRetryOperations(
 				RetryOperation{
 					Duration: time.Millisecond * 500,
-					Result:   retry.RetryAfter(time.Second),
+					Result:   retry.After(time.Second),
 				},
 				// 1 second pause
 				RetryOperation{
@@ -298,7 +298,7 @@ func Test_RetryContext(t *testing.T) {
 				RetryOperation{
 					Duration: time.Millisecond * 500,
 					// RetryAfter(-1) for immediatly retry
-					Result: retry.RetryAfter(-1),
+					Result: retry.After(-1),
 				},
 				RetryOperation{
 					Duration: 0,
@@ -316,7 +316,7 @@ func Test_RetryContext(t *testing.T) {
 			RetryOperations: NewRetryOperations(
 				RetryOperation{
 					Duration: time.Millisecond * 500,
-					Result:   retry.RetryAfter(time.Second),
+					Result:   retry.After(time.Second),
 				},
 				// 1 second pause
 				RetryOperation{
@@ -372,15 +372,15 @@ func Test_RetryContext(t *testing.T) {
 			RetryOperations: NewRetryOperations(
 				RetryOperation{
 					Duration: 0,
-					Result:   retry.RetryAfter(-1),
+					Result:   retry.After(-1),
 				},
 				RetryOperation{
 					Duration: 0,
-					Result:   retry.RetryAfter(-1),
+					Result:   retry.Immediately(),
 				},
 				RetryOperation{
 					Duration: 0,
-					Result:   retry.RetryAfter(-1),
+					Result:   retry.Immediately(),
 				},
 				RetryOperation{
 					Duration: 0,
@@ -414,6 +414,36 @@ func Test_RetryContext(t *testing.T) {
 				},
 			),
 			ExpectedRetryDuration: time.Second * 4,
+			ExpectedErr:           errors.Join(retry.ErrRetryCountExceeded, io.ErrNoProgress),
+		},
+		{
+			Name:           "recover immediately",
+			Backoff:        retry.Plain(time.Second * 100),
+			RetryCount:     4,
+			ContextTimeout: time.Second * 100,
+			RetryOperations: NewRetryOperations(
+				RetryOperation{
+					Duration: 0,
+					Result:   retry.RecoverAfter(io.ErrUnexpectedEOF, time.Second),
+				},
+				RetryOperation{
+					Duration: time.Second,
+					Result:   retry.RecoverAfter(io.ErrUnexpectedEOF, time.Millisecond*500),
+				},
+				RetryOperation{
+					Duration: time.Millisecond * 500,
+					Result:   retry.RecoverAfter(io.ErrUnexpectedEOF, time.Millisecond*500),
+				},
+				RetryOperation{
+					Duration: time.Millisecond * 500,
+					Result:   retry.RecoverAfter(io.ErrClosedPipe, time.Millisecond*500),
+				},
+				RetryOperation{
+					Duration: 0,
+					Result:   retry.RecoverImmediately(io.ErrNoProgress),
+				},
+			),
+			ExpectedRetryDuration: time.Millisecond * 4500,
 			ExpectedErr:           errors.Join(retry.ErrRetryCountExceeded, io.ErrNoProgress),
 		},
 	}
@@ -542,8 +572,8 @@ func Test_Result_Eq(t *testing.T) {
 		},
 		{
 			Name:          "retryAfter not equal",
-			Original:      retry.RetryAfter(time.Second),
-			Other:         retry.RetryAfter(time.Second * 2),
+			Original:      retry.After(time.Second),
+			Other:         retry.After(time.Second * 2),
 			ExpectedEqual: false,
 		},
 		{
@@ -560,8 +590,8 @@ func Test_Result_Eq(t *testing.T) {
 		},
 		{
 			Name:          "equal, retryAfter",
-			Original:      retry.RetryAfter(time.Second),
-			Other:         retry.RetryAfter(time.Second),
+			Original:      retry.After(time.Second),
+			Other:         retry.After(time.Second),
 			ExpectedEqual: true,
 		},
 		{
